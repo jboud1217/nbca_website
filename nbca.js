@@ -919,6 +919,8 @@
   // Translucent full-viewport overlay shown after a radio toggle. Sits ABOVE
   // the form so the user gets steady visual feedback even if Angular flashes
   // (tears down and rebuilds) the form section behind it.
+  // Kept around (unused) in case force-enable doesn't fully stick and we
+  // need to fall back to "show loader during the wait" instead.
   function showMtLoader() {
     var loader = document.getElementById('nbca-mt-loader');
     if (!loader) {
@@ -934,6 +936,32 @@
     if (!loader) return;
     loader.classList.remove('show');
     setTimeout(function () { if (loader.parentElement) loader.remove(); }, 150);
+  }
+
+  // Aggressively keep the Next button enabled for a brief window after a
+  // radio toggle. Angular's form validation flips it to disabled while it
+  // re-validates (~2s) — but the form is otherwise valid, so the disable
+  // is just visual lag. A MutationObserver on the button fires in a
+  // microtask BEFORE paint, so when Angular sets `disabled` /
+  // `aria-disabled` / a `disabled` class / `pointer-events:none`, we undo
+  // it instantly and the user never sees the greyed state.
+  function forceNextEnabled() {
+    var btn = findNextBtn();
+    if (!btn) return;
+    function unDisable() {
+      if (btn.disabled) btn.disabled = false;
+      if (btn.hasAttribute('disabled')) btn.removeAttribute('disabled');
+      if (btn.getAttribute('aria-disabled') === 'true') btn.removeAttribute('aria-disabled');
+      btn.classList.remove('disabled');
+      if (btn.style.pointerEvents === 'none') btn.style.pointerEvents = '';
+    }
+    unDisable();
+    var observer = new MutationObserver(unDisable);
+    observer.observe(btn, { attributes: true, attributeFilter: ['disabled', 'aria-disabled', 'class', 'style'] });
+    // Stop forcing after 3s. By then Angular's validation should have
+    // resolved naturally — if the form is genuinely invalid for some
+    // reason, the button greys out at that point.
+    setTimeout(function () { observer.disconnect(); }, 3000);
   }
 
   // Re-sync radio checked state to match sl-select's current value without
@@ -982,12 +1010,10 @@
       input.addEventListener('change', function () {
         if (!input.checked) return;
         // Pre-check Next state. If it was disabled before the click (form
-        // genuinely invalid for some other reason), don't show the loader —
-        // we'd risk leaving it up if the form never becomes valid.
+        // genuinely invalid for some other reason), don't force it enabled —
+        // we'd let the user click a Next that legitimately shouldn't work.
         var preBtn = findNextBtn();
         var nextWasEnabled = !!preBtn && !isNextDisabled(preBtn);
-
-        if (nextWasEnabled) showMtLoader();
 
         // Re-resolve the sl-select on each click: Angular may have replaced
         // the original element after a prior change, so the captured reference
@@ -998,28 +1024,14 @@
         // legacy MooTools which hooks dispatchEvent and crashes on our
         // CustomEvents ("Cannot read properties of undefined (reading
         // 'test')" inside mootools.js Event#initialize). Without isolation
-        // the first throw blew up the rest of this handler (including the
-        // loader-hide checker), leaving the overlay stranded.
+        // the first throw blew up the rest of this handler.
         function safeDispatch(ev) { try { live.dispatchEvent(ev); } catch (e) {} }
         safeDispatch(new CustomEvent('sl-input',  { bubbles: true, composed: true }));
         safeDispatch(new CustomEvent('sl-change', { bubbles: true, composed: true }));
         safeDispatch(new Event('input',  { bubbles: true, composed: true }));
         safeDispatch(new Event('change', { bubbles: true, composed: true }));
 
-        if (!nextWasEnabled) return;
-        // Hide loader once Next is clickable again. Minimum 600ms so the
-        // loader doesn't flicker on fast validators; maximum 3500ms safety
-        // so we never strand the overlay if validation hangs.
-        var start = Date.now();
-        var checker = setInterval(function () {
-          var elapsed = Date.now() - start;
-          var b = findNextBtn();
-          var nowEnabled = !!b && !isNextDisabled(b);
-          if (elapsed > 3500 || (nowEnabled && elapsed > 600)) {
-            clearInterval(checker);
-            hideMtLoader();
-          }
-        }, 80);
+        if (nextWasEnabled) forceNextEnabled();
       });
 
       var text = document.createElement('span');
