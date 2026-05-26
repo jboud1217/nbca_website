@@ -1014,28 +1014,43 @@
       input.addEventListener('change', function () {
         if (!input.checked) return;
         // Pre-check Next state. If it was disabled before the click (form
-        // genuinely invalid for some other reason), don't force it enabled —
-        // we'd let the user click a Next that legitimately shouldn't work.
+        // genuinely invalid for some other reason), don't show the loader —
+        // we'd risk leaving it up if the form never becomes valid.
         var preBtn = findNextBtn();
         var nextWasEnabled = !!preBtn && !isNextDisabled(preBtn);
+
+        if (nextWasEnabled) showMtLoader();
 
         // Re-resolve the sl-select on each click: Angular may have replaced
         // the original element after a prior change, so the captured reference
         // could be stale. The MemberClicks field ID is stable across renders.
         var live = document.querySelector('sl-select[id*="_212914070_"]') || slSelect;
         try { live.value = opt.value; } catch (e) {}
-        // Isolate each dispatch in try/catch — MemberClicks still loads
-        // legacy MooTools which hooks dispatchEvent and crashes on our
-        // CustomEvents ("Cannot read properties of undefined (reading
-        // 'test')" inside mootools.js Event#initialize). Without isolation
-        // the first throw blew up the rest of this handler.
+        // Only dispatch the Shoelace CustomEvents — Angular's formly-shoelace
+        // bindings listen on sl-change. Native Event('input') / Event('change')
+        // dispatches were redundant AND were triggering a global MooTools
+        // listener that crashes on our events ("Cannot read properties of
+        // undefined (reading 'test')" inside mootools.js Event#initialize).
+        // Dropping them removes that noise from the console.
         function safeDispatch(ev) { try { live.dispatchEvent(ev); } catch (e) {} }
         safeDispatch(new CustomEvent('sl-input',  { bubbles: true, composed: true }));
         safeDispatch(new CustomEvent('sl-change', { bubbles: true, composed: true }));
-        safeDispatch(new Event('input',  { bubbles: true, composed: true }));
-        safeDispatch(new Event('change', { bubbles: true, composed: true }));
 
-        if (nextWasEnabled) forceNextEnabled();
+        if (!nextWasEnabled) return;
+        // Hide loader once Next is clickable again. Minimum 600ms so the
+        // loader doesn't flicker on fast validators; maximum 3500ms safety.
+        // Browser-blocks-disabled-buttons means we can't make Next clickable
+        // sooner; the loader masks the unavoidable wait.
+        var start = Date.now();
+        var checker = setInterval(function () {
+          var elapsed = Date.now() - start;
+          var b = findNextBtn();
+          var nowEnabled = !!b && !isNextDisabled(b);
+          if (elapsed > 3500 || (nowEnabled && elapsed > 600)) {
+            clearInterval(checker);
+            hideMtLoader();
+          }
+        }, 80);
       });
 
       var text = document.createElement('span');
