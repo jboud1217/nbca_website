@@ -85,33 +85,42 @@
        forms), which already have their own Material chrome around them. */
     + ' #component-wrap input[type="text"]:not(.mat-input-element), #component-wrap input[type="password"]:not(.mat-input-element), #component-wrap input[type="email"]:not(.mat-input-element) { padding: 10px 12px; border: 1px solid #d6dde3; border-radius: 8px; font-size: 1rem; max-width: 360px; margin: 6px 0; transition: border-color 0.2s, box-shadow 0.2s; }'
     + ' #component-wrap input[type="text"]:not(.mat-input-element):focus, #component-wrap input[type="password"]:not(.mat-input-element):focus, #component-wrap input[type="email"]:not(.mat-input-element):focus { outline: none; border-color: #005189; box-shadow: 0 0 0 3px rgba(0,81,137,0.12); }'
-    + ' #component-wrap input[type="submit"], #component-wrap button[type="submit"] { background: #005189; color: #fff; padding: 10px 24px; border: 0; border-radius: 8px; font-weight: 600; cursor: pointer; transition: background 0.2s, transform 0.2s; }'
-    + ' #component-wrap input[type="submit"]:hover, #component-wrap button[type="submit"]:hover { background: #003d66; transform: translateY(-1px); }'
+    /* Submit buttons in inner content. Exclude Material (mat-flat-button,
+       mat-button, etc.) and Shoelace (sl-button) so we don't double-style
+       login / reset-password / retrieve-username / member-profile pages,
+       which have their own button chrome. .login-box has scoped styles
+       above that take precedence; this is for legacy MemberClicks forms
+       (contact, news reply) that use real <button> / <input> elements. */
+    + ' #component-wrap input[type="submit"]:not([class*="mat-"]), #component-wrap button[type="submit"]:not([class*="mat-"]) { background: #005189; color: #fff; padding: 10px 24px; border: 0; border-radius: 8px; font-weight: 600; cursor: pointer; transition: background 0.2s, transform 0.2s; }'
+    + ' #component-wrap input[type="submit"]:not([class*="mat-"]):hover, #component-wrap button[type="submit"]:not([class*="mat-"]):hover { background: #003d66; transform: translateY(-1px); }'
 
-    /* Login page (and reset-password) — clean card + branded button.
-       MemberClicks renders these with raw Angular Material classes; we
-       flatten the Material chrome and replace it with our own. */
-    + ' .login-box.mat-card { max-width: 480px; margin: 24px auto !important; padding: 36px 40px !important; background: #fff !important; border-radius: 12px !important; box-shadow: 0 4px 24px rgba(0,0,0,0.08) !important; }'
-    + ' .login-box .form-field-label { display: block; font-size: 0.95rem; font-weight: 600; color: #1a1a1a; margin: 18px 0 8px; }'
-    + ' .login-box .mat-card-content > .form-field-label:first-child { margin-top: 0; }'
-    + ' .login-box mat-form-field.form-field-input { display: block; width: 100%; position: relative; }'
-    + ' .login-box mat-form-field .mat-form-field-wrapper { padding: 0 !important; margin: 0 !important; }'
-    + ' .login-box mat-form-field .mat-form-field-flex { background: transparent !important; padding: 0 !important; border-radius: 0 !important; }'
-    + ' .login-box mat-form-field .mat-form-field-infix { padding: 0 !important; border-top: 0 !important; width: 100%; }'
-    + ' .login-box mat-form-field .mat-form-field-underline, .login-box mat-form-field .mat-form-field-subscript-wrapper { display: none !important; }'
-    + ' .login-box mat-form-field input.mat-input-element { padding: 12px 14px !important; border: 1px solid #d6dde3 !important; border-radius: 8px !important; font-size: 1rem !important; width: 100% !important; box-sizing: border-box !important; background: #fff !important; color: #1a1a1a !important; margin: 0 !important; transition: border-color 0.2s, box-shadow 0.2s; }'
-    + ' .login-box mat-form-field input.mat-input-element:focus { outline: none !important; border-color: #005189 !important; box-shadow: 0 0 0 3px rgba(0,81,137,0.12) !important; }'
-    + ' .login-box .mat-form-field-suffix { position: absolute !important; right: 10px; top: 50%; transform: translateY(-50%); }'
-    + ' .login-box .mat-form-field-suffix .mat-icon { cursor: pointer; color: #666; }'
-    + ' .login-box .management-links { margin: 18px 0; font-size: 0.9rem; }'
-    + ' .login-box .management-links a { color: #005189 !important; text-decoration: none; font-weight: 600; }'
-    + ' .login-box .management-links a:hover { text-decoration: underline; }'
-    + ' .login-box .management-links .link-divider { margin: 0 8px; color: #ccc; }'
-    + ' .login-box mat-checkbox .mat-checkbox-label { font-size: 0.95rem; color: #1a1a1a; }'
-    + ' .login-box .mat-card-footer.action-footer { margin: 24px 0 0 !important; padding: 0 !important; }'
-    + ' .login-box button.action-button { width: 100%; background: #005189 !important; color: #fff !important; padding: 14px 24px !important; border-radius: 8px !important; font-size: 1rem !important; font-weight: 600 !important; cursor: pointer; border: 0 !important; box-shadow: none !important; transition: background 0.2s, transform 0.2s; }'
-    + ' .login-box button.action-button:hover { background: #003d66 !important; transform: translateY(-1px); }'
-    + ' .login-box button.action-button .mat-button-wrapper { color: #fff; font-weight: 600; letter-spacing: 0.3px; }'
+    /* Angular Material auth pages (login, reset-password, retrieve-username,
+       member-profile sub-views, etc.) — clean card + branded button. Scoped
+       to mat-card inside #component-wrap so we don't accidentally restyle
+       Material cards that might appear in other contexts (e.g. embedded
+       widgets). The specific `.login-box` rules at the bottom layer on
+       login-specific tweaks; the rest apply to any mat-card auth page. */
+    + ' #component-wrap mat-card.mat-card { max-width: 480px; margin: 24px auto !important; padding: 36px 40px !important; background: #fff !important; border-radius: 12px !important; box-shadow: 0 4px 24px rgba(0,0,0,0.08) !important; }'
+    + ' #component-wrap mat-card .form-field-label { display: block; font-size: 0.95rem; font-weight: 600; color: #1a1a1a; margin: 18px 0 8px; }'
+    + ' #component-wrap mat-card .mat-card-content > .form-field-label:first-child { margin-top: 0; }'
+    + ' #component-wrap mat-card mat-form-field { display: block; width: 100%; position: relative; }'
+    + ' #component-wrap mat-card mat-form-field .mat-form-field-wrapper { padding: 0 !important; margin: 0 !important; }'
+    + ' #component-wrap mat-card mat-form-field .mat-form-field-flex { background: transparent !important; padding: 0 !important; border-radius: 0 !important; }'
+    + ' #component-wrap mat-card mat-form-field .mat-form-field-infix { padding: 0 !important; border-top: 0 !important; width: 100%; }'
+    + ' #component-wrap mat-card mat-form-field .mat-form-field-underline, #component-wrap mat-card mat-form-field .mat-form-field-subscript-wrapper { display: none !important; }'
+    + ' #component-wrap mat-card mat-form-field input.mat-input-element { padding: 12px 14px !important; border: 1px solid #d6dde3 !important; border-radius: 8px !important; font-size: 1rem !important; width: 100% !important; box-sizing: border-box !important; background: #fff !important; color: #1a1a1a !important; margin: 0 !important; transition: border-color 0.2s, box-shadow 0.2s; }'
+    + ' #component-wrap mat-card mat-form-field input.mat-input-element:focus { outline: none !important; border-color: #005189 !important; box-shadow: 0 0 0 3px rgba(0,81,137,0.12) !important; }'
+    + ' #component-wrap mat-card .mat-form-field-suffix { position: absolute !important; right: 10px; top: 50%; transform: translateY(-50%); }'
+    + ' #component-wrap mat-card .mat-form-field-suffix .mat-icon { cursor: pointer; color: #666; }'
+    + ' #component-wrap mat-card .management-links { margin: 18px 0; font-size: 0.9rem; }'
+    + ' #component-wrap mat-card .management-links a { color: #005189 !important; text-decoration: none; font-weight: 600; }'
+    + ' #component-wrap mat-card .management-links a:hover { text-decoration: underline; }'
+    + ' #component-wrap mat-card .management-links .link-divider { margin: 0 8px; color: #ccc; }'
+    + ' #component-wrap mat-card mat-checkbox .mat-checkbox-label { font-size: 0.95rem; color: #1a1a1a; }'
+    + ' #component-wrap mat-card .mat-card-footer { margin: 24px 0 0 !important; padding: 0 !important; }'
+    + ' #component-wrap mat-card button.mat-flat-button, #component-wrap mat-card button.action-button { width: 100%; background: #005189 !important; color: #fff !important; padding: 14px 24px !important; border-radius: 8px !important; font-size: 1rem !important; font-weight: 600 !important; cursor: pointer; border: 0 !important; box-shadow: none !important; transition: background 0.2s, transform 0.2s; }'
+    + ' #component-wrap mat-card button.mat-flat-button:hover, #component-wrap mat-card button.action-button:hover { background: #003d66 !important; transform: translateY(-1px); }'
+    + ' #component-wrap mat-card button.mat-flat-button .mat-button-wrapper, #component-wrap mat-card button.action-button .mat-button-wrapper { color: #fff; font-weight: 600; letter-spacing: 0.3px; }'
 
     /* Photos page gallery (masonry via CSS columns) */
     + ' .nbca-photos-intro { color: #444; font-size: 1.05rem; line-height: 1.7; margin: 0 0 24px; }'
