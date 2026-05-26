@@ -971,7 +971,20 @@
   // Re-sync radio checked state to match sl-select's current value without
   // rebuilding the DOM. Used when a group already exists in the right place —
   // avoids the rebuild flash on each toggle.
+  // Belt-and-suspenders inline display:none. The CSS rule keys on the `id`
+  // attribute (`sl-select[id*="_212914070_"]`), but on back-navigation Angular
+  // can briefly paint the new sl-select before its id is set, causing the
+  // old dropdown with its prior selection to flash visible. An inline style
+  // applied in microtask (via the MutationObserver -> tick path) catches
+  // the element before paint, regardless of attribute timing.
+  function hideMemberTypeSelect(slSelect) {
+    if (slSelect.style.display !== 'none') slSelect.style.display = 'none';
+    var wrapper = slSelect.closest('app-single-select');
+    if (wrapper && wrapper.style.display !== 'none') wrapper.style.display = 'none';
+  }
+
   function syncRadioState(group, slSelect) {
+    hideMemberTypeSelect(slSelect);
     var current = String(slSelect.value == null ? '' : slSelect.value);
     var inputs = group.querySelectorAll('input[type="radio"]');
     for (var i = 0; i < inputs.length; i++) {
@@ -983,6 +996,8 @@
   function buildRadios(slSelect) {
     var options = readOptions(slSelect);
     if (options.length === 0) return;
+
+    hideMemberTypeSelect(slSelect);
 
     var anchor = radioAnchor(slSelect);
     var container = anchor.parentNode;
