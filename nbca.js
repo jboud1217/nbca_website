@@ -181,10 +181,15 @@
     + ' .nbca-radio-option:has(input[type="radio"]:checked) { border-color: #005189; background: #eef5fa; box-shadow: 0 0 0 2px rgba(0,81,137,0.15); }'
     + ' .nbca-radio-label { flex: 1; }'
 
-    /* Inline spinner shown on the Next button after a radio toggle while
-       Angular's validators re-run (button is momentarily disabled). Hides
-       as soon as the button becomes clickable again. */
-    + ' .nbca-next-spinner { display: inline-block; width: 12px; height: 12px; margin-left: 8px; vertical-align: middle; border: 2px solid rgba(0,0,0,0.18); border-top-color: rgba(0,0,0,0.7); border-radius: 50%; animation: nbca-spouse-spin 0.7s linear infinite; pointer-events: none; }';
+    /* Translucent full-viewport overlay shown after a Member Type radio
+       toggle, while Angular re-validates and re-renders the form. Sits ABOVE
+       the form flash so the user sees a steady loader instead of the form
+       flicker. Pointer-events disabled by default so it can't trap clicks if
+       the show/hide check ever drifts (separate `.show` class re-enables
+       pointer-events only when actually visible — see `pointer-events` below). */
+    + ' #nbca-mt-loader { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 99999; background: rgba(255,255,255,0.7); display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.12s ease; pointer-events: none; }'
+    + ' #nbca-mt-loader.show { opacity: 1; pointer-events: auto; }'
+    + ' #nbca-mt-loader .nbca-spinner { border: 4px solid #e1e8ee; border-top: 4px solid #005189; border-radius: 50%; width: 42px; height: 42px; animation: nbca-spouse-spin 0.8s linear infinite; }';
 
     document.head.appendChild(style);
 
@@ -892,40 +897,40 @@
     }
     return null;
   }
+  // Broad disabled detection — MemberClicks may signal "not clickable yet"
+  // via any of: HTML `disabled`, `aria-disabled`, a class, or CSS
+  // `pointer-events: none`. Initial inline-spinner version only checked HTML
+  // `disabled` and missed the actual signal, which is why the loader never
+  // appeared.
   function isNextDisabled(btn) {
     if (!btn) return true;
-    return btn.disabled || btn.hasAttribute('disabled') || btn.classList.contains('disabled');
+    if (btn.disabled) return true;
+    if (btn.hasAttribute('disabled')) return true;
+    if (btn.getAttribute('aria-disabled') === 'true') return true;
+    if (btn.classList.contains('disabled')) return true;
+    var s = window.getComputedStyle(btn);
+    if (s.pointerEvents === 'none') return true;
+    return false;
   }
-  function showNextSpinner(btn) {
-    if (!btn || btn.querySelector(':scope > .nbca-next-spinner')) return;
-    var s = document.createElement('span');
-    s.className = 'nbca-next-spinner';
-    s.setAttribute('aria-hidden', 'true');
-    btn.appendChild(s);
+
+  // Translucent full-viewport overlay shown after a radio toggle. Sits ABOVE
+  // the form so the user gets steady visual feedback even if Angular flashes
+  // (tears down and rebuilds) the form section behind it.
+  function showMtLoader() {
+    var loader = document.getElementById('nbca-mt-loader');
+    if (!loader) {
+      loader = document.createElement('div');
+      loader.id = 'nbca-mt-loader';
+      loader.innerHTML = '<div class="nbca-spinner"></div>';
+      document.body.appendChild(loader);
+    }
+    requestAnimationFrame(function () { loader.classList.add('show'); });
   }
-  function hideNextSpinner() {
-    var existing = document.querySelectorAll('.nbca-next-spinner');
-    for (var i = 0; i < existing.length; i++) existing[i].remove();
-  }
-  // After a radio toggle, if the Next button briefly greys out while Angular
-  // re-validates, show an inline spinner inside it. Hide as soon as the
-  // button becomes clickable again. 5s safety timeout in case validation
-  // never resolves (e.g. form is genuinely invalid for some other reason).
-  function watchNextUntilEnabled() {
-    var btn = findNextBtn();
-    if (!btn || !isNextDisabled(btn)) return;
-    showNextSpinner(btn);
-    var start = Date.now();
-    var checker = setInterval(function () {
-      var b = findNextBtn();
-      if (!b || !isNextDisabled(b) || Date.now() - start > 5000) {
-        clearInterval(checker);
-        hideNextSpinner();
-      } else {
-        // Re-add spinner if Angular replaced the button's children
-        showNextSpinner(b);
-      }
-    }, 80);
+  function hideMtLoader() {
+    var loader = document.getElementById('nbca-mt-loader');
+    if (!loader) return;
+    loader.classList.remove('show');
+    setTimeout(function () { if (loader.parentElement) loader.remove(); }, 150);
   }
 
   // Re-sync radio checked state to match sl-select's current value without
@@ -974,10 +979,12 @@
       input.addEventListener('change', function () {
         if (!input.checked) return;
         // Pre-check Next state. If it was disabled before the click (form
-        // genuinely invalid for some other reason), don't show a spinner —
-        // we'd never hide it.
+        // genuinely invalid for some other reason), don't show the loader —
+        // we'd risk leaving it up if the form never becomes valid.
         var preBtn = findNextBtn();
         var nextWasEnabled = !!preBtn && !isNextDisabled(preBtn);
+
+        if (nextWasEnabled) showMtLoader();
 
         // Re-resolve the sl-select on each click: Angular may have replaced
         // the original element after a prior change, so the captured reference
@@ -989,10 +996,20 @@
         live.dispatchEvent(new Event('input',  { bubbles: true, composed: true }));
         live.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
 
-        if (nextWasEnabled) {
-          // Brief delay so Angular has a chance to flip the disabled state.
-          setTimeout(watchNextUntilEnabled, 30);
-        }
+        if (!nextWasEnabled) return;
+        // Hide loader once Next is clickable again. Minimum 600ms so the
+        // loader doesn't flicker on fast validators; maximum 3500ms safety
+        // so we never strand the overlay if validation hangs.
+        var start = Date.now();
+        var checker = setInterval(function () {
+          var elapsed = Date.now() - start;
+          var b = findNextBtn();
+          var nowEnabled = !!b && !isNextDisabled(b);
+          if (elapsed > 3500 || (nowEnabled && elapsed > 600)) {
+            clearInterval(checker);
+            hideMtLoader();
+          }
+        }, 80);
       });
 
       var text = document.createElement('span');
