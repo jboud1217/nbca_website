@@ -991,10 +991,17 @@
         // could be stale. The MemberClicks field ID is stable across renders.
         var live = document.querySelector('sl-select[id*="_212914070_"]') || slSelect;
         try { live.value = opt.value; } catch (e) {}
-        live.dispatchEvent(new CustomEvent('sl-input',  { bubbles: true, composed: true }));
-        live.dispatchEvent(new CustomEvent('sl-change', { bubbles: true, composed: true }));
-        live.dispatchEvent(new Event('input',  { bubbles: true, composed: true }));
-        live.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+        // Isolate each dispatch in try/catch — MemberClicks still loads
+        // legacy MooTools which hooks dispatchEvent and crashes on our
+        // CustomEvents ("Cannot read properties of undefined (reading
+        // 'test')" inside mootools.js Event#initialize). Without isolation
+        // the first throw blew up the rest of this handler (including the
+        // loader-hide checker), leaving the overlay stranded.
+        function safeDispatch(ev) { try { live.dispatchEvent(ev); } catch (e) {} }
+        safeDispatch(new CustomEvent('sl-input',  { bubbles: true, composed: true }));
+        safeDispatch(new CustomEvent('sl-change', { bubbles: true, composed: true }));
+        safeDispatch(new Event('input',  { bubbles: true, composed: true }));
+        safeDispatch(new Event('change', { bubbles: true, composed: true }));
 
         if (!nextWasEnabled) return;
         // Hide loader once Next is clickable again. Minimum 600ms so the
