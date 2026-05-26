@@ -112,7 +112,7 @@
     /* Hide the address section inside user-added (spouse/family) wrappers via
        CSS so Angular never sees a JS-applied inline style mutation that could
        trigger a re-render cycle on blur. */
-    + ' app-registrant-wrapper[data-nbca-user-added="1"] app-address { display: none !important; }'
+    + ' .registrant-wrapper[data-nbca-user-added="1"] app-address { display: none !important; }'
 
     /* After the user clicks "Add Spouse / Family Member", hide it AND any
        nested "Create Linked Profile" button MemberClicks renders inside the
@@ -456,57 +456,28 @@
   }
 
   // When the primary registrant is the only *visible* wrapper, auto-expand it.
-  // The wrapper isn't an <sl-details> — collapse is a custom click handler on
-  // the header. `wasAlone` is set true ONLY when verified expanded (sample
-  // input has nonzero height); a click attempt alone doesn't set it. That way
-  // if the first click misses (Angular mid-cycle on delete), the Delete
-  // safety-net's later retries can re-attempt. A 200ms throttle prevents
-  // rapid-fire clicking.
+  // MemberClicks rewrote the wrapper to use Shoelace's <sl-details> for the
+  // collapsible — so expansion is now just `slDetails.open = true`, no header
+  // click needed. Previously was custom click handler that broke when they
+  // switched to sl-details. `wasAlone` lets the user manually collapse
+  // afterwards without us re-opening it.
   var wasAlone = false;
-  var lastExpandAttempt = 0;
   function expandPrimaryIfAlone() {
-    var all = document.querySelectorAll('app-registrant-wrapper');
+    var all = document.querySelectorAll('.registrant-wrapper');
     var visible = [];
     for (var i = 0; i < all.length; i++) {
       var w = all[i];
       if (w.offsetWidth > 0 && w.offsetHeight > 0) visible.push(w);
     }
-    var count = visible.length;
-
-    if (count !== 1) {
-      wasAlone = false;
-      return;
-    }
+    if (visible.length !== 1) { wasAlone = false; return; }
     var primary = visible[0];
     if (!isPrimaryWrapper(primary)) return;
 
-    var sample = primary.querySelector('sl-input, sl-select');
-    if (sample && sample.offsetHeight > 0) {
-      wasAlone = true; // Verified expanded — stop attempting
-      return;
-    }
-    if (wasAlone) return; // User manually collapsed after we expanded — don't fight
-
-    // Throttle to 1500ms between clicks. Angular's expand animation runs
-    // for ~300-500ms; if we click again during that window the second click
-    // *toggles back* and collapses what the first one was opening. The
-    // verify check (`sample.offsetHeight > 0` → wasAlone=true at the top of
-    // this function) catches successful expansion on subsequent polls so we
-    // stop clicking once it's open.
-    var now = Date.now();
-    if (now - lastExpandAttempt < 1500) return;
-    lastExpandAttempt = now;
-
-    // Single click target — `typeEl.parentElement` is the row that holds
-    // the name + (Self) + chevron, and clicking it toggles the wrapper.
-    // Trying multiple ancestors in sequence ended up toggling open→closed
-    // because the click bubbles, so a second click on a parent would
-    // collapse what the first click just expanded.
-    var typeEl = primary.querySelector('.registrant__type');
-    var header = typeEl && typeEl.parentElement;
-    if (header) {
-      try { header.click(); } catch (e) {}
-    }
+    var details = primary.querySelector('sl-details');
+    if (!details) return;
+    if (details.open) { wasAlone = true; return; }
+    if (wasAlone) return; // User manually collapsed — don't fight them
+    try { details.open = true; } catch (e) {}
   }
 
   function renameLinkedProfileBtn() {
@@ -596,7 +567,7 @@
   function autoTriggerSpouseIfNeeded() {
     if (!hasSpouseData || spouseAutoClickAttempted) return;
     // Bail if any non-primary wrapper exists (spouse already there).
-    var wrappers = document.querySelectorAll('app-registrant-wrapper');
+    var wrappers = document.querySelectorAll('.registrant-wrapper');
     for (var i = 0; i < wrappers.length; i++) {
       if (!isPrimaryWrapper(wrappers[i])) { spouseAutoClickAttempted = true; return; }
     }
@@ -616,7 +587,7 @@
   // fill happens once and we don't fight the user typing.
   function fillSpouseFields() {
     if (!hasSpouseData) return;
-    var wrappers = document.querySelectorAll('app-registrant-wrapper');
+    var wrappers = document.querySelectorAll('.registrant-wrapper');
     var spouseWrapper = null;
     for (var i = 0; i < wrappers.length; i++) {
       if (!isPrimaryWrapper(wrappers[i])) { spouseWrapper = wrappers[i]; break; }
@@ -648,7 +619,7 @@
     // hides it.
     renameLinkedProfileBtn();
 
-    var wrappers = document.querySelectorAll('app-registrant-wrapper');
+    var wrappers = document.querySelectorAll('.registrant-wrapper');
     if (wrappers.length < 2) return;
 
     for (var i = 0; i < wrappers.length; i++) {
@@ -669,7 +640,7 @@
       }
 
       // Address section is hidden via global CSS rule
-      // (`app-registrant-wrapper[data-nbca-user-added="1"] app-address`) — no
+      // (`.registrant-wrapper[data-nbca-user-added="1"] app-address`) — no
       // inline style mutation needed here.
     }
   }
@@ -710,7 +681,7 @@
   // away (user clicked Delete), clear the flag so the Add Spouse button
   // re-appears and the primary auto-expands again.
   function reMarkLinkedWrappers() {
-    var wrappers = document.querySelectorAll('app-registrant-wrapper');
+    var wrappers = document.querySelectorAll('.registrant-wrapper');
     var changed = false;
     var hasNonPrimary = false;
     var primary = null;
@@ -740,8 +711,8 @@
   // doesn't lose our customizations.
   function addedSubtreeIsRelevant(n) {
     if (n.nodeType !== 1) return false;
-    if (n.tagName === 'APP-REGISTRANT-WRAPPER') return true;
-    if (n.querySelector && n.querySelector('app-registrant-wrapper')) return true;
+    if (n.classList && n.classList.contains('registrant-wrapper')) return true;
+    if (n.querySelector && n.querySelector('.registrant-wrapper')) return true;
     var txt = n.textContent || '';
     if (txt.indexOf('Create Linked Profile') !== -1) return true;
     return txt.indexOf('Membership Options') !== -1
@@ -750,8 +721,8 @@
   }
   function removedSubtreeIsWrapper(n) {
     if (n.nodeType !== 1) return false;
-    if (n.tagName === 'APP-REGISTRANT-WRAPPER') return true;
-    return !!(n.querySelector && n.querySelector('app-registrant-wrapper'));
+    if (n.classList && n.classList.contains('registrant-wrapper')) return true;
+    return !!(n.querySelector && n.querySelector('.registrant-wrapper'));
   }
   var hideObserver = new MutationObserver(function (mutations) {
     for (var i = 0; i < mutations.length; i++) {
@@ -786,7 +757,7 @@
   // because it stopped after 5s.
   var lastWrapperCount = -1;
   setInterval(function () {
-    var all = document.querySelectorAll('app-registrant-wrapper');
+    var all = document.querySelectorAll('.registrant-wrapper');
     var count = 0;
     for (var i = 0; i < all.length; i++) {
       if (all[i].offsetWidth > 0 && all[i].offsetHeight > 0) count++;
@@ -820,7 +791,7 @@
     var el = e.target && e.target.closest && e.target.closest('a, button');
     if (!el) return;
     if ((el.textContent || '').trim() !== 'Delete') return;
-    if (!el.closest('app-registrant-wrapper')) return;
+    if (!el.closest('.registrant-wrapper')) return;
     setTimeout(function () { reMarkLinkedWrappers(); expandPrimaryIfAlone(); }, 150);
     setTimeout(function () { reMarkLinkedWrappers(); expandPrimaryIfAlone(); }, 600);
     setTimeout(function () { reMarkLinkedWrappers(); expandPrimaryIfAlone(); }, 1500);
@@ -879,13 +850,13 @@
 
     // Primary is detected by "(Self)" in its registrant header, so it's never
     // confused with a new linked wrapper even if Angular re-renders mid-flow.
-    var existing = document.querySelectorAll('app-registrant-wrapper');
+    var existing = document.querySelectorAll('.registrant-wrapper');
     for (var i = 0; i < existing.length; i++) {
       if (!isPrimaryWrapper(existing[i])) existing[i].dataset.nbcaPreClick = '1';
     }
 
     function markAndCustomize() {
-      var wrappers = document.querySelectorAll('app-registrant-wrapper');
+      var wrappers = document.querySelectorAll('.registrant-wrapper');
       for (var j = 0; j < wrappers.length; j++) {
         var w = wrappers[j];
         if (isPrimaryWrapper(w)) continue;
