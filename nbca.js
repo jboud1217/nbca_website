@@ -1174,7 +1174,22 @@
   var nextUrl = params.get('next');
   var magicFname = params.get('n');
 
-  if (nextUrl) sessionStorage.setItem('nbca_post_login_next', nextUrl);
+  // Carry form pre-fill params (primary + spouse) from the magic-link URL
+  // over to the redirect target. Without this, the redirect `location.href =
+  // nextUrl` would drop everything except the path, and the form page would
+  // load with no pre-fill data to consume.
+  if (nextUrl) {
+    var formParamKeys = ['email', 'fname', 'lname', 'address', 'city', 'zip', 'sfname', 'slname', 'semail'];
+    var carryPairs = [];
+    for (var fpi = 0; fpi < formParamKeys.length; fpi++) {
+      var fv = params.get(formParamKeys[fpi]);
+      if (fv) carryPairs.push(formParamKeys[fpi] + '=' + encodeURIComponent(fv));
+    }
+    if (carryPairs.length) {
+      nextUrl += (nextUrl.indexOf('?') === -1 ? '?' : '&') + carryPairs.join('&');
+    }
+    sessionStorage.setItem('nbca_post_login_next', nextUrl);
+  }
   if (magicUser && magicPass) {
     localStorage.setItem('nbca_used_magic_link', '1');
     localStorage.setItem('nbca_magic_email', magicUser);
