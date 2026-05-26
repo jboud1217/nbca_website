@@ -171,9 +171,12 @@
        drives submission — radio clicks write back to it. CSS-based hide via
        the stable MemberClicks field ID means any Angular re-render keeps
        the dropdown invisible (no flash on change). */
-    + ' sl-select[id*="_212914070_"], app-single-select[id*="_212914070_"], formly-field:has(sl-select[id*="_212914070_"]), formly-field:has(app-single-select[id*="_212914070_"]) { display: none !important; }'
-    /* Hide Organization field by stable MemberClicks field ID so it stays hidden across Angular re-renders (back navigation, value changes) without waiting for JS. */
-    + ' formly-field:has(sl-input[id*="_212914073_"]) { display: none !important; }'
+    + ' sl-select[id*="_212914070_"], app-single-select[id*="_212914070_"] { display: none !important; }'
+    /* DON'T use `formly-field:has(...)` to hide the Member Type or Organization
+       formly-fields — MemberClicks wraps the whole form section in an outer
+       formly-field, and CSS `:has()` matches EVERY ancestor formly-field, not
+       just the immediate one, so it would hide the entire form. JS handles
+       the formly-field hide via `closest('formly-field')` instead. */
     + ' .nbca-radio-group { display: flex; flex-direction: column; gap: 10px; margin: 10px 0 16px; max-width: 600px; }'
     + ' .nbca-radio-option { display: flex; align-items: center; padding: 14px 16px; border: 1px solid #d6dde3; border-radius: 8px; cursor: pointer; font-size: 1rem; color: #1a1a1a; background: #fff; transition: border-color 0.2s, background 0.2s, box-shadow 0.2s; }'
     + ' .nbca-radio-option:hover { border-color: #005189; background: #f7f9fb; }'
