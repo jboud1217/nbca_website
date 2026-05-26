@@ -406,6 +406,18 @@
     zip:     params.get('zip')
   };
 
+  // Spouse / household member from magic-link URL params. Keys mirror the
+  // primary `presets` shape (fname/lname/email) so the same fieldMap selectors
+  // apply — just scoped to the spouse wrapper instead of the document root.
+  // Magic-link generator appends sfname=...&slname=...&semail=... when a
+  // same-address prospect is found.
+  var spousePresets = {
+    fname: params.get('sfname'),
+    lname: params.get('slname'),
+    email: params.get('semail')
+  };
+  var hasSpouseData = !!(spousePresets.fname || spousePresets.lname || spousePresets.email);
+
   var fieldMap = {
     email:   'sl-input[id*="_email_"]',
     fname:   'sl-input[id*="_firstName_"]',
@@ -575,6 +587,60 @@
     return !!(typeEl && typeEl.textContent.indexOf('(Self)') !== -1);
   }
 
+  // Programmatically click the "Add Spouse / Family Member" button when the
+  // magic link includes spouse data (?sfname=...&slname=...&semail=...). Only
+  // fires once per page load, and only if no spouse wrapper exists yet
+  // (prevents double-add on back navigation or when MemberClicks restored a
+  // prior spouse from session state).
+  var spouseAutoClickAttempted = false;
+  function autoTriggerSpouseIfNeeded() {
+    if (!hasSpouseData || spouseAutoClickAttempted) return;
+    // Bail if any non-primary wrapper exists (spouse already there).
+    var wrappers = document.querySelectorAll('app-registrant-wrapper');
+    for (var i = 0; i < wrappers.length; i++) {
+      if (!isPrimaryWrapper(wrappers[i])) { spouseAutoClickAttempted = true; return; }
+    }
+    // Wait until our rename has tagged the button — the existing
+    // click-on-button handler that adds nbcaUserAdded sentinel etc. checks
+    // `dataset.nbcaLinkedRenamed === '1'`, so clicking before rename means
+    // the post-click bookkeeping wouldn't fire.
+    var btn = document.querySelector('button[data-nbca-linked-renamed="1"], sl-button[data-nbca-linked-renamed="1"]');
+    if (!btn || btn.offsetWidth === 0) return;
+    spouseAutoClickAttempted = true;
+    try { btn.click(); } catch (e) {}
+  }
+
+  // Pre-fill the spouse wrapper's fname / lname / email fields from URL
+  // params. Scoped to the non-primary wrapper so we don't write into the
+  // primary registrant's form by mistake. Sentinel on the wrapper so the
+  // fill happens once and we don't fight the user typing.
+  function fillSpouseFields() {
+    if (!hasSpouseData) return;
+    var wrappers = document.querySelectorAll('app-registrant-wrapper');
+    var spouseWrapper = null;
+    for (var i = 0; i < wrappers.length; i++) {
+      if (!isPrimaryWrapper(wrappers[i])) { spouseWrapper = wrappers[i]; break; }
+    }
+    if (!spouseWrapper || spouseWrapper.dataset.nbcaSpouseFilled === '1') return;
+    var filledCount = 0;
+    var totalCount = 0;
+    for (var key in spousePresets) {
+      if (!spousePresets[key]) continue;
+      totalCount++;
+      var sel = fieldMap[key];
+      if (!sel) continue;
+      var el = spouseWrapper.querySelector(sel);
+      if (!el) continue;
+      if (el.value === '') {
+        setShoelaceValue(el, spousePresets[key]);
+      }
+      if (el.value === spousePresets[key]) filledCount++;
+    }
+    if (filledCount > 0 && filledCount === totalCount) {
+      spouseWrapper.dataset.nbcaSpouseFilled = '1';
+    }
+  }
+
   function customizeLinkedProfile() {
     // Catch any "Create Linked Profile" button that MemberClicks rendered into
     // the new spouse wrapper — tag it so the CSS rule
@@ -622,6 +688,8 @@
     hideMembershipOptions();
     fillEmptyFields();
     reMarkLinkedWrappers();
+    autoTriggerSpouseIfNeeded();
+    fillSpouseFields();
 
     var now = Date.now();
     if (now - lastHeavyTick < 2000) return;
@@ -739,6 +807,10 @@
     // when nothing's pending.
     hideOrgFields();
     hideMembershipOptions();
+    // Same for spouse auto-fill: if Angular re-renders the spouse wrapper on
+    // Previous/Next, the fill sentinel goes with the old wrapper and we need
+    // to refill the new one. Cheap when sentinel is set on current wrapper.
+    fillSpouseFields();
   }, 400);
 
   // Safety net for the Delete click: regardless of whether MemberClicks
