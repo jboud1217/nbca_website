@@ -100,7 +100,7 @@
        Material cards that might appear in other contexts (e.g. embedded
        widgets). The specific `.login-box` rules at the bottom layer on
        login-specific tweaks; the rest apply to any mat-card auth page. */
-    + ' #component-wrap mat-card.mat-card { max-width: 480px; margin: 24px auto !important; padding: 36px 40px !important; background: #fff !important; border-radius: 12px !important; box-shadow: 0 4px 24px rgba(0,0,0,0.08) !important; }'
+    + ' #component-wrap mat-card.mat-card { display: block !important; width: 100% !important; max-width: 480px !important; margin-left: auto !important; margin-right: auto !important; margin-top: 24px !important; margin-bottom: 24px !important; padding: 36px 40px !important; background: #fff !important; border-radius: 12px !important; box-shadow: 0 4px 24px rgba(0,0,0,0.08) !important; box-sizing: border-box !important; }'
     + ' #component-wrap mat-card .form-field-label { display: block; font-size: 0.95rem; font-weight: 600; color: #1a1a1a; margin: 18px 0 8px; }'
     + ' #component-wrap mat-card .mat-card-content > .form-field-label:first-child { margin-top: 0; }'
     + ' #component-wrap mat-card mat-form-field { display: block; width: 100%; position: relative; }'
