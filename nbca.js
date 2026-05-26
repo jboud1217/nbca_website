@@ -1,3 +1,4 @@
+alert('hello world');
 (function() {
     var style = document.createElement('style');
     style.textContent = '.mc-logo-link > a > img { height: 80px !important; width: auto !important; } #mc-primary-header-bar { height: 80px !important; } .moduletable.join-now { display: inline-flex !important; gap: 10px; }'
