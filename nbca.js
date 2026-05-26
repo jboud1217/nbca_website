@@ -890,9 +890,13 @@
     return slSelect.closest('formly-field') || slSelect.closest('app-single-select') || slSelect;
   }
 
-  // Find the form's Next button (visible button whose text === "Next").
+  // Find the form's Next button. MemberClicks renders it as <sl-button>
+  // (Shoelace web component), not a native <button> — so the query has
+  // to include both. The diagnostic snippet that first ran with only
+  // `button` returned NO NEXT BUTTON FOUND, which is why forceNextEnabled
+  // was silently no-oping.
   function findNextBtn() {
-    var btns = document.querySelectorAll('button');
+    var btns = document.querySelectorAll('button, sl-button');
     for (var i = 0; i < btns.length; i++) {
       if ((btns[i].textContent || '').trim() === 'Next' && btns[i].offsetWidth > 0) {
         return btns[i];
