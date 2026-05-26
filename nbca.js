@@ -100,13 +100,11 @@
        Material cards that might appear in other contexts (e.g. embedded
        widgets). The specific `.login-box` rules at the bottom layer on
        login-specific tweaks; the rest apply to any mat-card auth page. */
-    /* Force the mat-card's immediate parent to flex-center it. The
-       previous attempt of display:block + margin:auto on the card alone
-       didn't visually center because Angular's wrapping component
-       (app-login / app-reset-password / etc.) was using its own layout
-       that didn't give the card a block context to center within. */
-    + ' #component-wrap *:has(> mat-card.mat-card) { display: flex !important; justify-content: center !important; align-items: flex-start !important; padding: 24px 16px !important; width: 100% !important; box-sizing: border-box !important; }'
-    + ' #component-wrap mat-card.mat-card { display: block !important; width: 100% !important; max-width: 480px !important; margin: 0 !important; padding: 36px 40px !important; background: #fff !important; border-radius: 12px !important; box-shadow: 0 4px 24px rgba(0,0,0,0.08) !important; box-sizing: border-box !important; }'
+    /* Center the auth card horizontally using transform — works regardless
+       of the parent's display type (block, flex, grid). Reverted from
+       :has() approach because it could match #component-wrap itself
+       (mat-card may be a direct child) and break other page layouts. */
+    + ' #component-wrap mat-card.mat-card { display: block !important; position: relative !important; left: 50% !important; transform: translateX(-50%) !important; width: 100% !important; max-width: 480px !important; margin: 24px 0 !important; padding: 36px 40px !important; background: #fff !important; border-radius: 12px !important; box-shadow: 0 4px 24px rgba(0,0,0,0.08) !important; box-sizing: border-box !important; }'
     + ' #component-wrap mat-card .form-field-label { display: block; font-size: 0.95rem; font-weight: 600; color: #1a1a1a; margin: 18px 0 8px; }'
     + ' #component-wrap mat-card .mat-card-content > .form-field-label:first-child { margin-top: 0; }'
     /* Reset MemberClicks' custom .form-field-input class (which adds its
@@ -129,9 +127,12 @@
     + ' #component-wrap mat-card .management-links .link-divider { margin: 0 8px; color: #ccc; }'
     + ' #component-wrap mat-card mat-checkbox .mat-checkbox-label { font-size: 0.95rem; color: #1a1a1a; }'
     + ' #component-wrap mat-card .mat-card-footer { margin: 24px 0 0 !important; padding: 0 !important; }'
-    + ' #component-wrap mat-card button.mat-flat-button, #component-wrap mat-card button.action-button { width: 100%; background: #005189 !important; color: #fff !important; padding: 14px 24px !important; border-radius: 8px !important; font-size: 1rem !important; font-weight: 600 !important; cursor: pointer; border: 0 !important; box-shadow: none !important; transition: background 0.2s, transform 0.2s; }'
+    + ' #component-wrap mat-card button.mat-flat-button, #component-wrap mat-card button.action-button { display: flex !important; align-items: center !important; justify-content: center !important; text-align: center !important; width: 100%; background: #005189 !important; color: #fff !important; padding: 14px 24px !important; border-radius: 8px !important; font-size: 1rem !important; font-weight: 600 !important; cursor: pointer; border: 0 !important; box-shadow: none !important; position: relative !important; overflow: hidden !important; transition: background 0.2s, transform 0.2s; }'
     + ' #component-wrap mat-card button.mat-flat-button:hover, #component-wrap mat-card button.action-button:hover { background: #003d66 !important; transform: translateY(-1px); }'
-    + ' #component-wrap mat-card button.mat-flat-button .mat-button-wrapper, #component-wrap mat-card button.action-button .mat-button-wrapper { color: #fff; font-weight: 600; letter-spacing: 0.3px; }'
+    /* The mat-button-wrapper (text) should sit centered; the ripple +
+       focus overlay should fill the button without shifting the text. */
+    + ' #component-wrap mat-card button.mat-flat-button .mat-button-wrapper, #component-wrap mat-card button.action-button .mat-button-wrapper { color: #fff !important; font-weight: 600 !important; letter-spacing: 0.3px !important; flex: 1 1 auto !important; text-align: center !important; display: block !important; }'
+    + ' #component-wrap mat-card button.mat-flat-button .mat-button-ripple, #component-wrap mat-card button.mat-flat-button .mat-button-focus-overlay, #component-wrap mat-card button.action-button .mat-button-ripple, #component-wrap mat-card button.action-button .mat-button-focus-overlay { position: absolute !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; pointer-events: none !important; }'
 
     /* Photos page gallery (masonry via CSS columns) */
     + ' .nbca-photos-intro { color: #444; font-size: 1.05rem; line-height: 1.7; margin: 0 0 24px; }'
