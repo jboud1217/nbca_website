@@ -103,11 +103,16 @@
     + ' #component-wrap mat-card.mat-card { display: block !important; width: 100% !important; max-width: 480px !important; margin-left: auto !important; margin-right: auto !important; margin-top: 24px !important; margin-bottom: 24px !important; padding: 36px 40px !important; background: #fff !important; border-radius: 12px !important; box-shadow: 0 4px 24px rgba(0,0,0,0.08) !important; box-sizing: border-box !important; }'
     + ' #component-wrap mat-card .form-field-label { display: block; font-size: 0.95rem; font-weight: 600; color: #1a1a1a; margin: 18px 0 8px; }'
     + ' #component-wrap mat-card .mat-card-content > .form-field-label:first-child { margin-top: 0; }'
-    + ' #component-wrap mat-card mat-form-field { display: block; width: 100%; position: relative; }'
-    + ' #component-wrap mat-card mat-form-field .mat-form-field-wrapper { padding: 0 !important; margin: 0 !important; }'
-    + ' #component-wrap mat-card mat-form-field .mat-form-field-flex { background: transparent !important; padding: 0 !important; border-radius: 0 !important; }'
-    + ' #component-wrap mat-card mat-form-field .mat-form-field-infix { padding: 0 !important; border-top: 0 !important; width: 100%; }'
-    + ' #component-wrap mat-card mat-form-field .mat-form-field-underline, #component-wrap mat-card mat-form-field .mat-form-field-subscript-wrapper { display: none !important; }'
+    /* Reset MemberClicks' custom .form-field-input class (which adds its
+       own rounded border + padding on the mat-form-field) AND Material's
+       default fill-variant chrome. After this, only the actual <input>
+       has a visible border. */
+    + ' #component-wrap mat-card mat-form-field { display: block !important; width: 100% !important; position: relative !important; background: transparent !important; border: 0 !important; padding: 0 !important; border-radius: 0 !important; box-shadow: none !important; min-height: 0 !important; }'
+    + ' #component-wrap mat-card mat-form-field.form-field-input { background: transparent !important; border: 0 !important; padding: 0 !important; border-radius: 0 !important; box-shadow: none !important; }'
+    + ' #component-wrap mat-card mat-form-field .mat-form-field-wrapper { padding: 0 !important; margin: 0 !important; background: transparent !important; border: 0 !important; min-height: 0 !important; }'
+    + ' #component-wrap mat-card mat-form-field .mat-form-field-flex { background: transparent !important; padding: 0 !important; border: 0 !important; border-radius: 0 !important; min-height: 0 !important; align-items: center !important; }'
+    + ' #component-wrap mat-card mat-form-field .mat-form-field-infix { padding: 0 !important; border-top: 0 !important; width: 100% !important; min-height: 0 !important; }'
+    + ' #component-wrap mat-card mat-form-field .mat-form-field-underline, #component-wrap mat-card mat-form-field .mat-form-field-subscript-wrapper, #component-wrap mat-card mat-form-field .mat-form-field-label-wrapper { display: none !important; }'
     + ' #component-wrap mat-card mat-form-field input.mat-input-element { padding: 12px 14px !important; border: 1px solid #d6dde3 !important; border-radius: 8px !important; font-size: 1rem !important; width: 100% !important; box-sizing: border-box !important; background: #fff !important; color: #1a1a1a !important; margin: 0 !important; transition: border-color 0.2s, box-shadow 0.2s; }'
     + ' #component-wrap mat-card mat-form-field input.mat-input-element:focus { outline: none !important; border-color: #005189 !important; box-shadow: 0 0 0 3px rgba(0,81,137,0.12) !important; }'
     + ' #component-wrap mat-card .mat-form-field-suffix { position: absolute !important; right: 10px; top: 50%; transform: translateY(-50%); }'
