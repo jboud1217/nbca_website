@@ -171,7 +171,9 @@
        drives submission — radio clicks write back to it. CSS-based hide via
        the stable MemberClicks field ID means any Angular re-render keeps
        the dropdown invisible (no flash on change). */
-    + ' sl-select[id*="_212914070_"], app-single-select[id*="_212914070_"] { display: none !important; }'
+    + ' sl-select[id*="_212914070_"], app-single-select[id*="_212914070_"], formly-field:has(sl-select[id*="_212914070_"]), formly-field:has(app-single-select[id*="_212914070_"]) { display: none !important; }'
+    /* Hide Organization field by stable MemberClicks field ID so it stays hidden across Angular re-renders (back navigation, value changes) without waiting for JS. */
+    + ' formly-field:has(sl-input[id*="_212914073_"]) { display: none !important; }'
     + ' .nbca-radio-group { display: flex; flex-direction: column; gap: 10px; margin: 10px 0 16px; max-width: 600px; }'
     + ' .nbca-radio-option { display: flex; align-items: center; padding: 14px 16px; border: 1px solid #d6dde3; border-radius: 8px; cursor: pointer; font-size: 1rem; color: #1a1a1a; background: #fff; transition: border-color 0.2s, background 0.2s, box-shadow 0.2s; }'
     + ' .nbca-radio-option:hover { border-color: #005189; background: #f7f9fb; }'
@@ -717,6 +719,13 @@
     // if the first click attempt failed (Angular mid-render), the next poll
     // retries until it succeeds.
     expandPrimaryIfAlone();
+    // After the 5s tick interval expires, back navigation can re-render the
+    // form with un-customized fields ("Membership Options", "1 period - $X",
+    // "Organization Name") freshly visible. Re-running the hides each tick
+    // catches those re-renders. Sentinel-gated on each element, so cheap
+    // when nothing's pending.
+    hideOrgFields();
+    hideMembershipOptions();
   }, 400);
 
   // Safety net for the Delete click: regardless of whether MemberClicks
@@ -859,12 +868,25 @@
     return out;
   }
 
-  // Returns the closest stable parent of the sl-select that Angular won't
-  // tear down when the value changes. We insert the radio group as a sibling
-  // of `app-single-select` (inside the `.field` div), so it survives re-renders
-  // of app-single-select's internal template.
+  // Anchor at the formly-field so the radio group sits OUTSIDE the part of the
+  // template Angular re-renders on value change. Angular re-renders the inside
+  // of app-single-select on every sl-change, which previously caused our
+  // radio group (sibling of app-single-select) to be torn out and rebuilt,
+  // producing the visible flash. The formly-field stays stable.
   function radioAnchor(slSelect) {
-    return slSelect.closest('app-single-select') || slSelect;
+    return slSelect.closest('formly-field') || slSelect.closest('app-single-select') || slSelect;
+  }
+
+  // Re-sync radio checked state to match sl-select's current value without
+  // rebuilding the DOM. Used when a group already exists in the right place —
+  // avoids the rebuild flash on each toggle.
+  function syncRadioState(group, slSelect) {
+    var current = String(slSelect.value == null ? '' : slSelect.value);
+    var inputs = group.querySelectorAll('input[type="radio"]');
+    for (var i = 0; i < inputs.length; i++) {
+      var shouldBeChecked = (inputs[i].value === current);
+      if (inputs[i].checked !== shouldBeChecked) inputs[i].checked = shouldBeChecked;
+    }
   }
 
   function buildRadios(slSelect) {
@@ -921,7 +943,6 @@
     });
 
     container.insertBefore(group, anchor);
-    slSelect.dataset.nbcaRadiosApplied = '1';
   }
 
   function tick() {
@@ -929,15 +950,17 @@
     for (var i = 0; i < selects.length; i++) {
       var s = selects[i];
       if (!isMemberTypeSelect(s)) continue;
-      // Sentinel lives on the sl-select. If Angular re-rendered it, the new
-      // element won't have the flag — we'll rebuild. If the flag is set but
-      // the radio group has been torn out (rare), we also rebuild.
-      if (s.dataset.nbcaRadiosApplied === '1') {
-        var anchor = radioAnchor(s);
-        if (anchor.parentNode && anchor.parentNode.querySelector(':scope > .nbca-radio-group')) {
-          continue;
-        }
-        delete s.dataset.nbcaRadiosApplied;
+
+      var anchor = radioAnchor(s);
+      if (!anchor.parentNode) continue;
+
+      // Don't rely on a sentinel on the sl-select (Angular may replace it).
+      // Check the actual DOM: if a radio group already exists in the anchor's
+      // parent, just sync state — never rebuild on every value change.
+      var existing = anchor.parentNode.querySelector(':scope > .nbca-radio-group');
+      if (existing) {
+        syncRadioState(existing, s);
+        continue;
       }
       buildRadios(s);
     }
@@ -945,6 +968,15 @@
 
   tick();
   setInterval(tick, 500);
+
+  // Faster-than-polling response: if Angular tears down the radio group during
+  // a re-render (back navigation, form-step transition), rebuild before paint.
+  // MutationObserver's callback runs in a microtask between the mutation and
+  // the next paint, and it batches all mutations from one drain into one
+  // callback — so a direct tick() per callback is correct AND cheap.
+  // rAF would be too late (it fires before the NEXT paint, not the current
+  // one), and would leave a one-frame visible flash.
+  new MutationObserver(tick).observe(document.body, { childList: true, subtree: true });
 })();
 
 (function () {
