@@ -179,7 +179,12 @@
     + ' .nbca-radio-option:hover { border-color: #005189; background: #f7f9fb; }'
     + ' .nbca-radio-option input[type="radio"] { margin: 0 12px 0 0; accent-color: #005189; transform: scale(1.15); flex-shrink: 0; }'
     + ' .nbca-radio-option:has(input[type="radio"]:checked) { border-color: #005189; background: #eef5fa; box-shadow: 0 0 0 2px rgba(0,81,137,0.15); }'
-    + ' .nbca-radio-label { flex: 1; }';
+    + ' .nbca-radio-label { flex: 1; }'
+
+    /* Inline spinner shown on the Next button after a radio toggle while
+       Angular's validators re-run (button is momentarily disabled). Hides
+       as soon as the button becomes clickable again. */
+    + ' .nbca-next-spinner { display: inline-block; width: 12px; height: 12px; margin-left: 8px; vertical-align: middle; border: 2px solid rgba(0,0,0,0.18); border-top-color: rgba(0,0,0,0.7); border-radius: 50%; animation: nbca-spouse-spin 0.7s linear infinite; pointer-events: none; }';
 
     document.head.appendChild(style);
 
@@ -877,6 +882,52 @@
     return slSelect.closest('formly-field') || slSelect.closest('app-single-select') || slSelect;
   }
 
+  // Find the form's Next button (visible button whose text === "Next").
+  function findNextBtn() {
+    var btns = document.querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++) {
+      if ((btns[i].textContent || '').trim() === 'Next' && btns[i].offsetWidth > 0) {
+        return btns[i];
+      }
+    }
+    return null;
+  }
+  function isNextDisabled(btn) {
+    if (!btn) return true;
+    return btn.disabled || btn.hasAttribute('disabled') || btn.classList.contains('disabled');
+  }
+  function showNextSpinner(btn) {
+    if (!btn || btn.querySelector(':scope > .nbca-next-spinner')) return;
+    var s = document.createElement('span');
+    s.className = 'nbca-next-spinner';
+    s.setAttribute('aria-hidden', 'true');
+    btn.appendChild(s);
+  }
+  function hideNextSpinner() {
+    var existing = document.querySelectorAll('.nbca-next-spinner');
+    for (var i = 0; i < existing.length; i++) existing[i].remove();
+  }
+  // After a radio toggle, if the Next button briefly greys out while Angular
+  // re-validates, show an inline spinner inside it. Hide as soon as the
+  // button becomes clickable again. 5s safety timeout in case validation
+  // never resolves (e.g. form is genuinely invalid for some other reason).
+  function watchNextUntilEnabled() {
+    var btn = findNextBtn();
+    if (!btn || !isNextDisabled(btn)) return;
+    showNextSpinner(btn);
+    var start = Date.now();
+    var checker = setInterval(function () {
+      var b = findNextBtn();
+      if (!b || !isNextDisabled(b) || Date.now() - start > 5000) {
+        clearInterval(checker);
+        hideNextSpinner();
+      } else {
+        // Re-add spinner if Angular replaced the button's children
+        showNextSpinner(b);
+      }
+    }, 80);
+  }
+
   // Re-sync radio checked state to match sl-select's current value without
   // rebuilding the DOM. Used when a group already exists in the right place —
   // avoids the rebuild flash on each toggle.
@@ -922,6 +973,12 @@
 
       input.addEventListener('change', function () {
         if (!input.checked) return;
+        // Pre-check Next state. If it was disabled before the click (form
+        // genuinely invalid for some other reason), don't show a spinner —
+        // we'd never hide it.
+        var preBtn = findNextBtn();
+        var nextWasEnabled = !!preBtn && !isNextDisabled(preBtn);
+
         // Re-resolve the sl-select on each click: Angular may have replaced
         // the original element after a prior change, so the captured reference
         // could be stale. The MemberClicks field ID is stable across renders.
@@ -931,6 +988,11 @@
         live.dispatchEvent(new CustomEvent('sl-change', { bubbles: true, composed: true }));
         live.dispatchEvent(new Event('input',  { bubbles: true, composed: true }));
         live.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+
+        if (nextWasEnabled) {
+          // Brief delay so Angular has a chance to flip the disabled state.
+          setTimeout(watchNextUntilEnabled, 30);
+        }
       });
 
       var text = document.createElement('span');
