@@ -1095,6 +1095,81 @@
     }
     setTimeout(retryUntilDone, 300);
   }, true);
+
+  // ============ Credit Card Type auto-detection ============
+  // The payment-step form has a separate "Credit Card Type" sl-select that
+  // the user has to set manually. Standard practice is to derive it from
+  // the card number prefix (BIN), so we listen for input on the number
+  // field and pick the matching option in the type dropdown.
+  //
+  // Range matching follows the public BIN tables — minimal, not a
+  // luhn-validating implementation. Returns a brand key or null.
+  function detectCardBrand(num) {
+    num = (num || '').replace(/\D/g, '');
+    if (!num) return null;
+    if (/^4/.test(num)) return 'visa';
+    if (/^3[47]/.test(num)) return 'amex';
+    if (/^(5[1-5]|2[2-7])/.test(num)) return 'mastercard';
+    if (/^(6011|65|64[4-9])/.test(num)) return 'discover';
+    if (/^(30[0-5]|3095|36|38|39)/.test(num)) return 'diners';
+    if (/^35(2[89]|[3-8])/.test(num)) return 'jcb';
+    return null;
+  }
+
+  // Brand → list of label substrings (lowercased) to look for in each
+  // sl-option's visible text. MemberClicks' option values may be internal
+  // codes ("CCT_VISA" etc.), so we identify the option by its visible
+  // label rather than guessing the value string.
+  var CARD_BRAND_LABELS = {
+    visa:       ['visa'],
+    amex:       ['american express', 'amex'],
+    mastercard: ['mastercard', 'master card'],
+    discover:   ['discover'],
+    diners:     ['diners'],
+    jcb:        ['jcb']
+  };
+
+  function syncCardTypeFromNumber() {
+    var numInput = document.querySelector('formly-field.credit-card__number sl-input');
+    var typeSelect = document.querySelector('formly-field.credit-card__type sl-select');
+    if (!numInput || !typeSelect) return;
+    var brand = detectCardBrand(numInput.value);
+    if (!brand) return;
+    var labels = CARD_BRAND_LABELS[brand];
+    var options = typeSelect.querySelectorAll('sl-option, sl-menu-item, option');
+    var match = null;
+    for (var i = 0; i < options.length && !match; i++) {
+      var text = (options[i].textContent || '').trim().toLowerCase();
+      for (var j = 0; j < labels.length; j++) {
+        if (text.indexOf(labels[j]) !== -1) { match = options[i]; break; }
+      }
+    }
+    if (!match) return;
+    var newValue = match.getAttribute('value');
+    if (newValue == null) newValue = match.value;
+    if (newValue == null) newValue = match.textContent.trim();
+    newValue = String(newValue);
+    if (!newValue || typeSelect.value === newValue) return;
+    try { typeSelect.value = newValue; } catch (e) {}
+    // Per the member-type handler comment: ONLY Shoelace CustomEvents on
+    // sl-select — dispatching native input/change crashes MooTools'
+    // global Event listener ("Cannot read properties of undefined
+    // (reading 'test')" inside mootools.js Event#initialize).
+    function safeDispatch(ev) { try { typeSelect.dispatchEvent(ev); } catch (e) {} }
+    safeDispatch(new CustomEvent('sl-input',  { bubbles: true, composed: true }));
+    safeDispatch(new CustomEvent('sl-change', { bubbles: true, composed: true }));
+  }
+
+  // sl-input emits the custom `sl-input` event with composed:true, so it
+  // bubbles past the shadow boundary and we can catch it at document level.
+  // Event delegation means we don't have to wait for the payment form to
+  // exist before attaching — the listener stays put for the page lifetime.
+  document.addEventListener('sl-input', function (e) {
+    var t = e.target;
+    if (!t || !t.closest) return;
+    if (!t.closest('formly-field.credit-card__number')) return;
+    syncCardTypeFromNumber();
+  }, true);
 })();
 
 (function () {
