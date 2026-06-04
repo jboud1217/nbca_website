@@ -171,6 +171,26 @@
     + ' #nbca-spouse-loader .nbca-spinner { border: 4px solid #e1e8ee; border-top: 4px solid #005189; border-radius: 50%; width: 42px; height: 42px; animation: nbca-spouse-spin 0.8s linear infinite; }'
     + ' @keyframes nbca-spouse-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }'
 
+    /* Informational banner shown at the top of each registrant wrapper's
+       expanded body, prompting the user to verify the pre-filled info. */
+    + ' .nbca-verify-banner { display: flex; align-items: flex-start; gap: 10px; background: #eaf3fa; border-left: 4px solid #005189; color: #1a3a52; padding: 12px 14px; border-radius: 6px; margin: 0 0 16px; font-size: 0.92rem; line-height: 1.45; }'
+    + ' .nbca-verify-banner__icon { flex: 0 0 auto; width: 20px; height: 20px; border-radius: 50%; background: #005189; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-style: italic; font-size: 0.8rem; font-family: Georgia, "Times New Roman", serif; margin-top: 1px; }'
+    + ' .nbca-verify-banner__text { flex: 1 1 auto; }'
+
+    /* Spouse / household-member confirmation card shown when the magic link
+       carries sfname/slname/semail and no spouse wrapper exists yet. */
+    + ' #nbca-spouse-confirm-card { background: #fff; border: 1px solid #d0e1ee; border-radius: 10px; padding: 18px 20px; margin: 0 0 20px; box-shadow: 0 2px 8px rgba(0,81,137,0.08); }'
+    + ' .nbca-spouse-confirm-card__title { font-size: 1.1rem; font-weight: 600; color: #005189; margin: 0 0 8px; }'
+    + ' .nbca-spouse-confirm-card__body { color: #333; margin: 0 0 14px; line-height: 1.5; font-size: 0.95rem; }'
+    + ' .nbca-spouse-confirm-card__name { font-weight: 600; color: #1a3a52; }'
+    + ' .nbca-spouse-confirm-card__email { color: #4a6478; font-size: 0.9em; }'
+    + ' .nbca-spouse-confirm-card__actions { display: flex; gap: 10px; flex-wrap: wrap; }'
+    + ' .nbca-spouse-confirm-card__btn { border: 0; border-radius: 6px; padding: 10px 18px; font-weight: 600; font-size: 0.92rem; cursor: pointer; transition: background 0.18s; font-family: inherit; }'
+    + ' .nbca-spouse-confirm-card__btn--primary { background: #005189; color: #fff; }'
+    + ' .nbca-spouse-confirm-card__btn--primary:hover { background: #00406d; }'
+    + ' .nbca-spouse-confirm-card__btn--secondary { background: #f0f4f8; color: #005189; }'
+    + ' .nbca-spouse-confirm-card__btn--secondary:hover { background: #e2eaf2; }'
+
     /* Suppress the dark full-viewport flash during linked-profile field
        validation. Catches Angular CDK/Material backdrops, Bootstrap modal
        backdrop, any *-backdrop class, plus common loading/mask/dimmer
@@ -525,6 +545,59 @@
     try { details.open = true; } catch (e) {}
   }
 
+  // Inject an informational "verify your info" banner at the top of each
+  // wrapper's expanded body. Primary wrapper gets "your information"; any
+  // non-primary wrapper gets "your household member's information". Gated
+  // on actual presence (cheap querySelector per wrapper) rather than a
+  // sentinel on the wrapper, so the banner survives Angular re-renders
+  // that wipe the sl-details body but keep the wrapper element.
+  function addVerifyBanners() {
+    var wrappers = document.querySelectorAll('.registrant-wrapper');
+    for (var i = 0; i < wrappers.length; i++) {
+      var w = wrappers[i];
+      var details = w.querySelector('sl-details');
+      if (!details) continue;
+      if (details.querySelector('.nbca-verify-banner')) continue;
+      var isPrimary = isPrimaryWrapper(w);
+      var msg = isPrimary
+        ? 'Please verify your information below is correct before continuing.'
+        : 'Please verify your household member’s information below is correct before continuing.';
+      var banner = document.createElement('div');
+      banner.className = 'nbca-verify-banner';
+      banner.setAttribute('role', 'note');
+      var icon = document.createElement('span');
+      icon.className = 'nbca-verify-banner__icon';
+      icon.setAttribute('aria-hidden', 'true');
+      icon.textContent = 'i';
+      var text = document.createElement('span');
+      text.className = 'nbca-verify-banner__text';
+      text.textContent = msg;
+      banner.appendChild(icon);
+      banner.appendChild(text);
+      // Prepend into the default slot of sl-details (anything without
+      // slot="summary" lands in the body).
+      details.insertBefore(banner, details.firstChild);
+    }
+  }
+
+  // When the user arrives via magic link with spouse data, both wrappers
+  // (primary + spouse) should be expanded on initial render. Per-wrapper
+  // sentinel (`nbcaInitiallyExpanded`) so we only force-open each one once —
+  // after that the user is free to manually collapse without us re-opening.
+  function expandBothIfMagicLinkSpouse() {
+    if (!hasSpouseData) return;
+    var wrappers = document.querySelectorAll('.registrant-wrapper');
+    for (var i = 0; i < wrappers.length; i++) {
+      var w = wrappers[i];
+      if (w.dataset.nbcaInitiallyExpanded === '1') continue;
+      if (w.offsetWidth === 0 && w.offsetHeight === 0) continue;
+      var details = w.querySelector('sl-details');
+      if (!details) continue;
+      try { details.open = true; } catch (e) {}
+      w.dataset.nbcaInitiallyExpanded = '1';
+    }
+  }
+
   function renameLinkedProfileBtn() {
     document.querySelectorAll('button, sl-button').forEach(function (b) {
       if (b.dataset.nbcaLinkedRenamed === '1') return;
@@ -603,14 +676,26 @@
     return !!(typeEl && typeEl.textContent.indexOf('(Self)') !== -1);
   }
 
+  // Three-state consent flag for the magic-link spouse flow. We no longer
+  // auto-click "Add Spouse" silently — instead we show a confirmation card
+  // and only proceed once the user explicitly accepts. 'na' means a spouse
+  // wrapper already exists (e.g. restored from a previous session) so the
+  // question is moot.
+  //   'pending'  — card visible (or about to be), waiting on user
+  //   'accepted' — user clicked "Yes" → auto-trigger may now fire
+  //   'declined' — user clicked "No"  → auto-trigger stays muted
+  //   'na'       — spouse already there, skip the card entirely
+  var spouseConsent = hasSpouseData ? 'pending' : 'na';
+
   // Programmatically click the "Add Spouse / Family Member" button when the
-  // magic link includes spouse data (?sfname=...&slname=...&semail=...). Only
-  // fires once per page load, and only if no spouse wrapper exists yet
-  // (prevents double-add on back navigation or when MemberClicks restored a
-  // prior spouse from session state).
+  // magic link includes spouse data AND the user has confirmed via the
+  // confirm card. Only fires once per page load, and only if no spouse
+  // wrapper exists yet (prevents double-add on back navigation or when
+  // MemberClicks restored a prior spouse from session state).
   var spouseAutoClickAttempted = false;
   function autoTriggerSpouseIfNeeded() {
     if (!hasSpouseData || spouseAutoClickAttempted) return;
+    if (spouseConsent !== 'accepted') return;
     // Bail if any non-primary wrapper exists (spouse already there).
     var wrappers = document.querySelectorAll('.registrant-wrapper');
     for (var i = 0; i < wrappers.length; i++) {
@@ -624,6 +709,74 @@
     if (!btn || btn.offsetWidth === 0) return;
     spouseAutoClickAttempted = true;
     try { btn.click(); } catch (e) {}
+  }
+
+  // Build and insert the consent card above the primary wrapper. Re-runnable
+  // every tick: only inserts when the card is missing AND consent is still
+  // 'pending' AND no spouse wrapper exists yet. Idempotent on each branch.
+  function showSpouseConfirmCard() {
+    if (!hasSpouseData) return;
+    var existing = document.getElementById('nbca-spouse-confirm-card');
+
+    // If decision already made, ensure card is gone.
+    if (spouseConsent !== 'pending') {
+      if (existing) existing.remove();
+      return;
+    }
+
+    // If a spouse wrapper showed up (e.g. MemberClicks restored it), the
+    // question is moot — hide the card and mark consent as not-applicable.
+    var primaryWrapper = null;
+    var wrappers = document.querySelectorAll('.registrant-wrapper');
+    for (var i = 0; i < wrappers.length; i++) {
+      var w = wrappers[i];
+      if (isPrimaryWrapper(w)) {
+        if (!primaryWrapper) primaryWrapper = w;
+      } else {
+        spouseConsent = 'na';
+        if (existing) existing.remove();
+        return;
+      }
+    }
+
+    if (existing) return; // Card already up; wait on user.
+    if (!primaryWrapper) return; // Need an anchor to insert before.
+
+    var fname = (spousePresets.fname || '').trim();
+    var lname = (spousePresets.lname || '').trim();
+    var email = (spousePresets.email || '').trim();
+    var displayName = (fname + ' ' + lname).trim() || 'another household member';
+
+    var card = document.createElement('div');
+    card.id = 'nbca-spouse-confirm-card';
+    card.setAttribute('role', 'region');
+    card.setAttribute('aria-label', 'Add household member');
+    card.innerHTML =
+      '<div class="nbca-spouse-confirm-card__title">Add household member?</div>' +
+      '<div class="nbca-spouse-confirm-card__body">' +
+        'We have <span class="nbca-spouse-confirm-card__name"></span>' +
+        '<span class="nbca-spouse-confirm-card__email"></span>' +
+        ' on file at your address. Add them to your household membership so you both share benefits?' +
+      '</div>' +
+      '<div class="nbca-spouse-confirm-card__actions">' +
+        '<button type="button" class="nbca-spouse-confirm-card__btn nbca-spouse-confirm-card__btn--primary" data-nbca-spouse-accept>Yes, add to my household</button>' +
+        '<button type="button" class="nbca-spouse-confirm-card__btn nbca-spouse-confirm-card__btn--secondary" data-nbca-spouse-decline>No, just register me</button>' +
+      '</div>';
+    // textContent (not innerHTML) for params — they're user-supplied via URL.
+    card.querySelector('.nbca-spouse-confirm-card__name').textContent = displayName;
+    if (email) {
+      card.querySelector('.nbca-spouse-confirm-card__email').textContent = ' <' + email + '>';
+    }
+    card.querySelector('[data-nbca-spouse-accept]').addEventListener('click', function () {
+      spouseConsent = 'accepted';
+      card.remove();
+      autoTriggerSpouseIfNeeded();
+    });
+    card.querySelector('[data-nbca-spouse-decline]').addEventListener('click', function () {
+      spouseConsent = 'declined';
+      card.remove();
+    });
+    primaryWrapper.parentNode.insertBefore(card, primaryWrapper);
   }
 
   // Pre-fill the spouse wrapper's fname / lname / email fields from URL
@@ -699,13 +852,16 @@
   function tick() {
     expandSelfAccordion();
     expandPrimaryIfAlone();
+    expandBothIfMagicLinkSpouse();
     renameLinkedProfileBtn();
     hideOrgFields();
     hideMembershipOptions();
     fillEmptyFields();
     reMarkLinkedWrappers();
+    showSpouseConfirmCard();
     autoTriggerSpouseIfNeeded();
     fillSpouseFields();
+    addVerifyBanners();
 
     var now = Date.now();
     if (now - lastHeavyTick < 2000) return;
@@ -778,6 +934,9 @@
           hideMembershipOptions();
           reMarkLinkedWrappers();
           expandPrimaryIfAlone();
+          expandBothIfMagicLinkSpouse();
+          showSpouseConfirmCard();
+          addVerifyBanners();
           replaceOrgWithHousehold();
           return;
         }
@@ -816,6 +975,16 @@
     // if the first click attempt failed (Angular mid-render), the next poll
     // retries until it succeeds.
     expandPrimaryIfAlone();
+    // Same retry behavior for the magic-link-with-spouse case: if the spouse
+    // wrapper renders after the 5s tick window expires, this catches it.
+    // Per-wrapper sentinel keeps it cheap once both have been opened once.
+    expandBothIfMagicLinkSpouse();
+    // Banners are also one-shot per wrapper; cheap after first render.
+    addVerifyBanners();
+    // Keep the consent card alive across Previous/Next re-renders that may
+    // wipe DOM nodes. Idempotent when the card is already present or when
+    // the user has already decided.
+    showSpouseConfirmCard();
     // After the 5s tick interval expires, back navigation can re-render the
     // form with un-customized fields ("Membership Options", "1 period - $X",
     // "Organization Name") freshly visible. Re-running the hides each tick
