@@ -488,7 +488,12 @@
     email:   'sl-input[id*="_email_"]',
     fname:   'sl-input[id*="_firstName_"]',
     lname:   'sl-input[id*="_lastName_"]',
-    phone:   'sl-input[id*="_phone_"]',
+    // Phone selector is broader than the others because MC's per-label phone
+    // fields use camelCase (e.g. `_phonePreferred_`, `_phoneMobile_`) rather
+    // than the underscore-wrapped single-word style of `_email_` / `_city_`.
+    // Matching `_phone` followed by anything (case-insensitive) catches all
+    // sub-label variants; the `type="tel"` fallback covers any ID scheme.
+    phone:   'sl-input[id*="_phone" i], sl-input[type="tel"]',
     address: 'sl-input[id*="_line1_"]',
     city:    'sl-input[id*="_city_"]',
     zip:     'sl-input[id*="_zip_"]'
