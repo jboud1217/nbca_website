@@ -583,11 +583,7 @@
         // pre-filled (or just-entered) details.
         var p1 = document.createElement('div');
         p1.textContent = 'Add a spouse or family member to your account for no additional cost. This allows both household members to receive NBCA communications separately.';
-        var p2 = document.createElement('div');
-        p2.style.marginTop = '8px';
-        p2.textContent = 'Please verify their information below before continuing.';
         text.appendChild(p1);
-        text.appendChild(p2);
       }
       banner.appendChild(icon);
       banner.appendChild(text);
