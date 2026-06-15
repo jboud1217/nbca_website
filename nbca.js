@@ -466,6 +466,7 @@
     email:   params.get('email'),
     fname:   params.get('fname'),
     lname:   params.get('lname'),
+    phone:   params.get('phone'),
     address: params.get('address'),
     city:    params.get('city'),
     zip:     params.get('zip')
@@ -487,6 +488,7 @@
     email:   'sl-input[id*="_email_"]',
     fname:   'sl-input[id*="_firstName_"]',
     lname:   'sl-input[id*="_lastName_"]',
+    phone:   'sl-input[id*="_phone_"]',
     address: 'sl-input[id*="_line1_"]',
     city:    'sl-input[id*="_city_"]',
     zip:     'sl-input[id*="_zip_"]'
@@ -559,9 +561,6 @@
       if (!details) continue;
       if (details.querySelector('.nbca-verify-banner')) continue;
       var isPrimary = isPrimaryWrapper(w);
-      var msg = isPrimary
-        ? 'Please verify your information below is correct before continuing.'
-        : 'Please verify your household member’s information below is correct before continuing.';
       var banner = document.createElement('div');
       banner.className = 'nbca-verify-banner';
       banner.setAttribute('role', 'note');
@@ -571,7 +570,20 @@
       icon.textContent = 'i';
       var text = document.createElement('span');
       text.className = 'nbca-verify-banner__text';
-      text.textContent = msg;
+      if (isPrimary) {
+        text.textContent = 'Please verify your information below is correct before continuing.';
+      } else {
+        // Spouse / household-member wrapper: lead with the value-prop so the
+        // user understands what they're getting, then ask them to verify the
+        // pre-filled (or just-entered) details.
+        var p1 = document.createElement('div');
+        p1.textContent = 'Add a spouse or family member to your account for no additional cost. This allows both household members to receive NBCA communications separately.';
+        var p2 = document.createElement('div');
+        p2.style.marginTop = '8px';
+        p2.textContent = 'Please verify their information below before continuing.';
+        text.appendChild(p1);
+        text.appendChild(p2);
+      }
       banner.appendChild(icon);
       banner.appendChild(text);
       // Prepend into the default slot of sl-details (anything without
@@ -1468,7 +1480,7 @@
   // nextUrl` would drop everything except the path, and the form page would
   // load with no pre-fill data to consume.
   if (nextUrl) {
-    var formParamKeys = ['email', 'fname', 'lname', 'address', 'city', 'zip', 'sfname', 'slname', 'semail'];
+    var formParamKeys = ['email', 'fname', 'lname', 'phone', 'address', 'city', 'zip', 'sfname', 'slname', 'semail'];
     var carryPairs = [];
     for (var fpi = 0; fpi < formParamKeys.length; fpi++) {
       var fv = params.get(formParamKeys[fpi]);
