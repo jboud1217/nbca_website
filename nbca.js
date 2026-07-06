@@ -1,3 +1,124 @@
+/* ============================================================
+   Magic-link funnel analytics (Google Analytics 4)
+
+   Fires one event per funnel stage so we can see how far a
+   prospect gets through the join flow:
+     magic_link_click             -> opened the emailed link
+     magic_link_login_success     -> auto-login succeeded
+     magic_link_application_view  -> reached the membership form
+     magic_link_application_prefilled -> their info pre-filled
+     magic_link_member_type_step  -> got to membership options
+     magic_link_payment_step      -> reached the payment step
+     magic_link_complete          -> finished joining (see COMPLETE_PATH)
+
+   Placed first so it can read the ?u=&p= params from the emailed
+   link BEFORE the login code below strips them from the URL. Each
+   step fires at most once per journey (per browser tab).
+   ============================================================ */
+(function () {
+  // If you've configured GA in MemberClicks (Settings -> Google Analytics),
+  // events reuse that tag automatically and this ID is never used. It's only
+  // a fallback for pages where GA isn't already loaded. Put your GA4 ID here.
+  var GA4_ID = 'G-QFGSWJ44H2';
+
+  // The page a member lands on AFTER a successful join. Set this to the
+  // member-type "landing page" you configure in MemberClicks so we can log
+  // the final conversion. Leave '' to skip completion tracking.
+  var COMPLETE_PATH = ''; // e.g. '/welcome-new-member'
+
+  // NOTE: GA4_ID must be a Measurement ID (G-XXXXXXXXXX), NOT the numeric
+  // property ID from MemberClicks' Settings -> Google Analytics field.
+  var gaConfigured = false;
+  function ensureGtag() {
+    var haveId = GA4_ID && GA4_ID.indexOf('G-') === 0;
+    if (!haveId) return typeof window.gtag === 'function'; // fall back to site GA
+    if (typeof window.gtag !== 'function') {
+      window.dataLayer = window.dataLayer || [];
+      window.gtag = function () { window.dataLayer.push(arguments); };
+      var s = document.createElement('script');
+      s.async = true;
+      s.src = 'https://www.googletagmanager.com/gtag/js?id=' + GA4_ID;
+      (document.head || document.documentElement).appendChild(s);
+      window.gtag('js', new Date());
+    }
+    // Configure our GA4 property once, even if the page already loaded a
+    // different (possibly legacy) gtag — this guarantees our events land in
+    // the GA4 property we care about.
+    if (!gaConfigured) { window.gtag('config', GA4_ID); gaConfigured = true; }
+    return true;
+  }
+
+  function track(step, extra) {
+    var key = 'nbca_ml_ev_' + step;
+    try {
+      if (sessionStorage.getItem(key) === '1') return; // once per journey
+      sessionStorage.setItem(key, '1');
+    } catch (e) {}
+    if (!ensureGtag()) return;
+    var params = { funnel: 'magic_link', ml_step: step };
+    try {
+      var email = sessionStorage.getItem('nbca_ml_email');
+      if (email) params.ml_email = email;
+    } catch (e) {}
+    if (extra) for (var k in extra) params[k] = extra[k];
+    window.gtag('event', 'magic_link_' + step, params);
+  }
+
+  function getParams() {
+    var s = location.search.replace(/^\?/, '');
+    var h = location.hash, i = h.indexOf('?');
+    var hs = i !== -1 ? h.substring(i + 1) : '';
+    return new URLSearchParams([s, hs].filter(Boolean).join('&'));
+  }
+
+  var p = getParams();
+  var magicUser = p.get('u'), magicPass = p.get('p');
+  if (magicUser && magicPass) {
+    try {
+      sessionStorage.setItem('nbca_ml_funnel', '1');
+      sessionStorage.setItem('nbca_ml_email', magicUser);
+    } catch (e) {}
+    track('click'); // Stage 1: opened the emailed magic link
+  }
+
+  var inFunnel = false;
+  try { inFunnel = sessionStorage.getItem('nbca_ml_funnel') === '1'; } catch (e) {}
+  if (!inFunnel) return; // ignore all non-magic-link traffic
+
+  var isLogin = location.pathname.indexOf('/login') !== -1;
+  var isForm  = location.pathname.indexOf('nbca-membership-application') !== -1;
+
+  function loggedIn()        { return !!document.querySelector('a[href*="logout"], a.logout-link'); }
+  function memberTypeShown() { return !!document.querySelector('sl-select[id*="_212914070_"], .nbca-radio-group'); }
+  function paymentShown()    { return !!document.querySelector('formly-group.credit-card, formly-field.credit-card__number'); }
+  function prefilledShown()  {
+    var el = document.querySelector('sl-input[id*="_firstName_"], sl-input[id*="_email_"]');
+    return !!(el && el.value);
+  }
+
+  function scan() {
+    if (COMPLETE_PATH && location.pathname.indexOf(COMPLETE_PATH) !== -1) {
+      track('complete'); // Stage 5: finished joining
+    }
+    if (loggedIn() && isLogin) track('login_success'); // Stage 2
+    if (isForm) {
+      track('application_view');                        // Stage 3
+      if (prefilledShown())  track('application_prefilled');
+      if (memberTypeShown()) track('member_type_step'); // Stage 4a
+      if (paymentShown())    track('payment_step');     // Stage 4b
+    }
+  }
+
+  scan();
+  // The membership form is an Angular SPA (steps swap without a page load),
+  // so watch for DOM changes to catch later stages, plus a short poll as a
+  // backstop for pages that finish rendering after load.
+  if (isForm && document.body) {
+    try { new MutationObserver(scan).observe(document.body, { childList: true, subtree: true }); } catch (e) {}
+  }
+  var n = 0, iv = setInterval(function () { scan(); if (++n > 40) clearInterval(iv); }, 500);
+})();
+
 (function() {
     var style = document.createElement('style');
     style.textContent = '.mc-logo-link > a > img { height: 80px !important; width: auto !important; } #mc-primary-header-bar { height: 80px !important; } .moduletable.join-now { display: inline-flex !important; gap: 10px; }'
@@ -176,20 +297,6 @@
     + ' .nbca-verify-banner { display: flex; align-items: flex-start; gap: 10px; background: #eaf3fa; border-left: 4px solid #005189; color: #1a3a52; padding: 12px 14px; border-radius: 6px; margin: 0 0 16px; font-size: 0.92rem; line-height: 1.45; }'
     + ' .nbca-verify-banner__icon { flex: 0 0 auto; width: 20px; height: 20px; border-radius: 50%; background: #005189; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-style: italic; font-size: 0.8rem; font-family: Georgia, "Times New Roman", serif; margin-top: 1px; }'
     + ' .nbca-verify-banner__text { flex: 1 1 auto; }'
-
-    /* Spouse / household-member confirmation card shown when the magic link
-       carries sfname/slname/semail and no spouse wrapper exists yet. */
-    + ' #nbca-spouse-confirm-card { background: #fff; border: 1px solid #d0e1ee; border-radius: 10px; padding: 18px 20px; margin: 0 0 20px; box-shadow: 0 2px 8px rgba(0,81,137,0.08); }'
-    + ' .nbca-spouse-confirm-card__title { font-size: 1.1rem; font-weight: 600; color: #005189; margin: 0 0 8px; }'
-    + ' .nbca-spouse-confirm-card__body { color: #333; margin: 0 0 14px; line-height: 1.5; font-size: 0.95rem; }'
-    + ' .nbca-spouse-confirm-card__name { font-weight: 600; color: #1a3a52; }'
-    + ' .nbca-spouse-confirm-card__email { color: #4a6478; font-size: 0.9em; }'
-    + ' .nbca-spouse-confirm-card__actions { display: flex; gap: 10px; flex-wrap: wrap; }'
-    + ' .nbca-spouse-confirm-card__btn { border: 0; border-radius: 6px; padding: 10px 18px; font-weight: 600; font-size: 0.92rem; cursor: pointer; transition: background 0.18s; font-family: inherit; }'
-    + ' .nbca-spouse-confirm-card__btn--primary { background: #005189; color: #fff; }'
-    + ' .nbca-spouse-confirm-card__btn--primary:hover { background: #00406d; }'
-    + ' .nbca-spouse-confirm-card__btn--secondary { background: #f0f4f8; color: #005189; }'
-    + ' .nbca-spouse-confirm-card__btn--secondary:hover { background: #e2eaf2; }'
 
     /* Suppress the dark full-viewport flash during linked-profile field
        validation. Catches Angular CDK/Material backdrops, Bootstrap modal
@@ -472,18 +579,6 @@
     zip:     params.get('zip')
   };
 
-  // Spouse / household member from magic-link URL params. Keys mirror the
-  // primary `presets` shape (fname/lname/email) so the same fieldMap selectors
-  // apply — just scoped to the spouse wrapper instead of the document root.
-  // Magic-link generator appends sfname=...&slname=...&semail=... when a
-  // same-address prospect is found.
-  var spousePresets = {
-    fname: params.get('sfname'),
-    lname: params.get('slname'),
-    email: params.get('semail')
-  };
-  var hasSpouseData = !!(spousePresets.fname || spousePresets.lname || spousePresets.email);
-
   var fieldMap = {
     email:   'sl-input[id*="_email_"]',
     fname:   'sl-input[id*="_firstName_"]',
@@ -582,7 +677,7 @@
         // user understands what they're getting, then ask them to verify the
         // pre-filled (or just-entered) details.
         var p1 = document.createElement('div');
-        p1.textContent = 'Add a spouse or family member to your account for no additional cost. This allows both household members to receive NBCA communications separately.';
+        p1.textContent = 'Add a spouse or family member to your account for no additional cost. This allows an additional household member to receive NBCA communications separately.';
         text.appendChild(p1);
       }
       banner.appendChild(icon);
@@ -590,24 +685,6 @@
       // Prepend into the default slot of sl-details (anything without
       // slot="summary" lands in the body).
       details.insertBefore(banner, details.firstChild);
-    }
-  }
-
-  // When the user arrives via magic link with spouse data, both wrappers
-  // (primary + spouse) should be expanded on initial render. Per-wrapper
-  // sentinel (`nbcaInitiallyExpanded`) so we only force-open each one once —
-  // after that the user is free to manually collapse without us re-opening.
-  function expandBothIfMagicLinkSpouse() {
-    if (!hasSpouseData) return;
-    var wrappers = document.querySelectorAll('.registrant-wrapper');
-    for (var i = 0; i < wrappers.length; i++) {
-      var w = wrappers[i];
-      if (w.dataset.nbcaInitiallyExpanded === '1') continue;
-      if (w.offsetWidth === 0 && w.offsetHeight === 0) continue;
-      var details = w.querySelector('sl-details');
-      if (!details) continue;
-      try { details.open = true; } catch (e) {}
-      w.dataset.nbcaInitiallyExpanded = '1';
     }
   }
 
@@ -689,140 +766,6 @@
     return !!(typeEl && typeEl.textContent.indexOf('(Self)') !== -1);
   }
 
-  // Three-state consent flag for the magic-link spouse flow. We no longer
-  // auto-click "Add Spouse" silently — instead we show a confirmation card
-  // and only proceed once the user explicitly accepts. 'na' means a spouse
-  // wrapper already exists (e.g. restored from a previous session) so the
-  // question is moot.
-  //   'pending'  — card visible (or about to be), waiting on user
-  //   'accepted' — user clicked "Yes" → auto-trigger may now fire
-  //   'declined' — user clicked "No"  → auto-trigger stays muted
-  //   'na'       — spouse already there, skip the card entirely
-  var spouseConsent = hasSpouseData ? 'pending' : 'na';
-
-  // Programmatically click the "Add Spouse / Family Member" button when the
-  // magic link includes spouse data AND the user has confirmed via the
-  // confirm card. Only fires once per page load, and only if no spouse
-  // wrapper exists yet (prevents double-add on back navigation or when
-  // MemberClicks restored a prior spouse from session state).
-  var spouseAutoClickAttempted = false;
-  function autoTriggerSpouseIfNeeded() {
-    if (!hasSpouseData || spouseAutoClickAttempted) return;
-    if (spouseConsent !== 'accepted') return;
-    // Bail if any non-primary wrapper exists (spouse already there).
-    var wrappers = document.querySelectorAll('.registrant-wrapper');
-    for (var i = 0; i < wrappers.length; i++) {
-      if (!isPrimaryWrapper(wrappers[i])) { spouseAutoClickAttempted = true; return; }
-    }
-    // Wait until our rename has tagged the button — the existing
-    // click-on-button handler that adds nbcaUserAdded sentinel etc. checks
-    // `dataset.nbcaLinkedRenamed === '1'`, so clicking before rename means
-    // the post-click bookkeeping wouldn't fire.
-    var btn = document.querySelector('button[data-nbca-linked-renamed="1"], sl-button[data-nbca-linked-renamed="1"]');
-    if (!btn || btn.offsetWidth === 0) return;
-    spouseAutoClickAttempted = true;
-    try { btn.click(); } catch (e) {}
-  }
-
-  // Build and insert the consent card above the primary wrapper. Re-runnable
-  // every tick: only inserts when the card is missing AND consent is still
-  // 'pending' AND no spouse wrapper exists yet. Idempotent on each branch.
-  function showSpouseConfirmCard() {
-    if (!hasSpouseData) return;
-    var existing = document.getElementById('nbca-spouse-confirm-card');
-
-    // If decision already made, ensure card is gone.
-    if (spouseConsent !== 'pending') {
-      if (existing) existing.remove();
-      return;
-    }
-
-    // If a spouse wrapper showed up (e.g. MemberClicks restored it), the
-    // question is moot — hide the card and mark consent as not-applicable.
-    var primaryWrapper = null;
-    var wrappers = document.querySelectorAll('.registrant-wrapper');
-    for (var i = 0; i < wrappers.length; i++) {
-      var w = wrappers[i];
-      if (isPrimaryWrapper(w)) {
-        if (!primaryWrapper) primaryWrapper = w;
-      } else {
-        spouseConsent = 'na';
-        if (existing) existing.remove();
-        return;
-      }
-    }
-
-    if (existing) return; // Card already up; wait on user.
-    if (!primaryWrapper) return; // Need an anchor to insert before.
-
-    var fname = (spousePresets.fname || '').trim();
-    var lname = (spousePresets.lname || '').trim();
-    var email = (spousePresets.email || '').trim();
-    var displayName = (fname + ' ' + lname).trim() || 'another household member';
-
-    var card = document.createElement('div');
-    card.id = 'nbca-spouse-confirm-card';
-    card.setAttribute('role', 'region');
-    card.setAttribute('aria-label', 'Add household member');
-    card.innerHTML =
-      '<div class="nbca-spouse-confirm-card__title">Add household member?</div>' +
-      '<div class="nbca-spouse-confirm-card__body">' +
-        'We have <span class="nbca-spouse-confirm-card__name"></span>' +
-        '<span class="nbca-spouse-confirm-card__email"></span>' +
-        ' on file at your address. Add them to your household membership so you both share benefits?' +
-      '</div>' +
-      '<div class="nbca-spouse-confirm-card__actions">' +
-        '<button type="button" class="nbca-spouse-confirm-card__btn nbca-spouse-confirm-card__btn--primary" data-nbca-spouse-accept>Yes, add to my household</button>' +
-        '<button type="button" class="nbca-spouse-confirm-card__btn nbca-spouse-confirm-card__btn--secondary" data-nbca-spouse-decline>No, just register me</button>' +
-      '</div>';
-    // textContent (not innerHTML) for params — they're user-supplied via URL.
-    card.querySelector('.nbca-spouse-confirm-card__name').textContent = displayName;
-    if (email) {
-      card.querySelector('.nbca-spouse-confirm-card__email').textContent = ' <' + email + '>';
-    }
-    card.querySelector('[data-nbca-spouse-accept]').addEventListener('click', function () {
-      spouseConsent = 'accepted';
-      card.remove();
-      autoTriggerSpouseIfNeeded();
-    });
-    card.querySelector('[data-nbca-spouse-decline]').addEventListener('click', function () {
-      spouseConsent = 'declined';
-      card.remove();
-    });
-    primaryWrapper.parentNode.insertBefore(card, primaryWrapper);
-  }
-
-  // Pre-fill the spouse wrapper's fname / lname / email fields from URL
-  // params. Scoped to the non-primary wrapper so we don't write into the
-  // primary registrant's form by mistake. Sentinel on the wrapper so the
-  // fill happens once and we don't fight the user typing.
-  function fillSpouseFields() {
-    if (!hasSpouseData) return;
-    var wrappers = document.querySelectorAll('.registrant-wrapper');
-    var spouseWrapper = null;
-    for (var i = 0; i < wrappers.length; i++) {
-      if (!isPrimaryWrapper(wrappers[i])) { spouseWrapper = wrappers[i]; break; }
-    }
-    if (!spouseWrapper || spouseWrapper.dataset.nbcaSpouseFilled === '1') return;
-    var filledCount = 0;
-    var totalCount = 0;
-    for (var key in spousePresets) {
-      if (!spousePresets[key]) continue;
-      totalCount++;
-      var sel = fieldMap[key];
-      if (!sel) continue;
-      var el = spouseWrapper.querySelector(sel);
-      if (!el) continue;
-      if (el.value === '') {
-        setShoelaceValue(el, spousePresets[key]);
-      }
-      if (el.value === spousePresets[key]) filledCount++;
-    }
-    if (filledCount > 0 && filledCount === totalCount) {
-      spouseWrapper.dataset.nbcaSpouseFilled = '1';
-    }
-  }
-
   function customizeLinkedProfile() {
     // Catch any "Create Linked Profile" button that MemberClicks rendered into
     // the new spouse wrapper — tag it so the CSS rule
@@ -865,15 +808,11 @@
   function tick() {
     expandSelfAccordion();
     expandPrimaryIfAlone();
-    expandBothIfMagicLinkSpouse();
     renameLinkedProfileBtn();
     hideOrgFields();
     hideMembershipOptions();
     fillEmptyFields();
     reMarkLinkedWrappers();
-    showSpouseConfirmCard();
-    autoTriggerSpouseIfNeeded();
-    fillSpouseFields();
     addVerifyBanners();
 
     var now = Date.now();
@@ -947,8 +886,6 @@
           hideMembershipOptions();
           reMarkLinkedWrappers();
           expandPrimaryIfAlone();
-          expandBothIfMagicLinkSpouse();
-          showSpouseConfirmCard();
           addVerifyBanners();
           replaceOrgWithHousehold();
           return;
@@ -988,16 +925,8 @@
     // if the first click attempt failed (Angular mid-render), the next poll
     // retries until it succeeds.
     expandPrimaryIfAlone();
-    // Same retry behavior for the magic-link-with-spouse case: if the spouse
-    // wrapper renders after the 5s tick window expires, this catches it.
-    // Per-wrapper sentinel keeps it cheap once both have been opened once.
-    expandBothIfMagicLinkSpouse();
     // Banners are also one-shot per wrapper; cheap after first render.
     addVerifyBanners();
-    // Keep the consent card alive across Previous/Next re-renders that may
-    // wipe DOM nodes. Idempotent when the card is already present or when
-    // the user has already decided.
-    showSpouseConfirmCard();
     // After the 5s tick interval expires, back navigation can re-render the
     // form with un-customized fields ("Membership Options", "1 period - $X",
     // "Organization Name") freshly visible. Re-running the hides each tick
@@ -1005,10 +934,6 @@
     // when nothing's pending.
     hideOrgFields();
     hideMembershipOptions();
-    // Same for spouse auto-fill: if Angular re-renders the spouse wrapper on
-    // Previous/Next, the fill sentinel goes with the old wrapper and we need
-    // to refill the new one. Cheap when sentinel is set on current wrapper.
-    fillSpouseFields();
   }, 400);
 
   // Safety net for the Delete click: regardless of whether MemberClicks
@@ -1476,12 +1401,12 @@
   var nextUrl = params.get('next');
   var magicFname = params.get('n');
 
-  // Carry form pre-fill params (primary + spouse) from the magic-link URL
-  // over to the redirect target. Without this, the redirect `location.href =
-  // nextUrl` would drop everything except the path, and the form page would
+  // Carry form pre-fill params for the primary registrant from the magic-link
+  // URL over to the redirect target. Without this, the redirect `location.href
+  // = nextUrl` would drop everything except the path, and the form page would
   // load with no pre-fill data to consume.
   if (nextUrl) {
-    var formParamKeys = ['email', 'fname', 'lname', 'phone', 'address', 'city', 'zip', 'sfname', 'slname', 'semail'];
+    var formParamKeys = ['email', 'fname', 'lname', 'phone', 'address', 'city', 'zip'];
     var carryPairs = [];
     for (var fpi = 0; fpi < formParamKeys.length; fpi++) {
       var fv = params.get(formParamKeys[fpi]);
