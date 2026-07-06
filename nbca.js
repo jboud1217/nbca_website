@@ -91,17 +91,29 @@
     var el = document.querySelector('sl-input[id*="_firstName_"], sl-input[id*="_email_"]');
     return !!(el && el.value);
   }
+  // Post-submit confirmation screen: a "Confirmation" section with
+  // "Your form has been submitted successfully." This is the true "done"
+  // signal (MemberClicks shows it in-place; there's no redirect).
+  function confirmationShown() {
+    var els = document.querySelectorAll('app-label, .section__name');
+    for (var i = 0; i < els.length; i++) {
+      var t = (els[i].textContent || '').toLowerCase();
+      if (t.indexOf('submitted successfully') !== -1) return true;
+    }
+    return false;
+  }
 
   function scan() {
     if (COMPLETE_PATH && location.pathname.indexOf(COMPLETE_PATH) !== -1) {
-      track('complete'); // Stage 5: finished joining
+      track('complete'); // optional: fires if you also use a landing page
     }
     if (loggedIn() && isLogin) track('login_success'); // Stage 2
     if (isForm) {
       track('application_view');                        // Stage 3
-      if (prefilledShown())  track('application_prefilled');
-      if (memberTypeShown()) track('member_type_step'); // Stage 4a
-      if (paymentShown())    track('payment_step');     // Stage 4b
+      if (prefilledShown())    track('application_prefilled');
+      if (memberTypeShown())   track('member_type_step'); // Stage 4a
+      if (paymentShown())      track('payment_step');     // Stage 4b
+      if (confirmationShown()) track('complete');         // Stage 5: submitted
     }
   }
 
@@ -113,6 +125,42 @@
     try { new MutationObserver(scan).observe(document.body, { childList: true, subtree: true }); } catch (e) {}
   }
   var n = 0, iv = setInterval(function () { scan(); if (++n > 40) clearInterval(iv); }, 500);
+})();
+
+/* ============================================================
+   Post-submit redirect. MemberClicks leaves a new member on the in-place
+   "Your form has been submitted successfully" confirmation with no redirect.
+   Once that confirmation appears, wait a moment (so they see "Thank you!"),
+   then send them to the homepage. Applies to anyone who completes the
+   membership application, not just magic-link visitors.
+   ============================================================ */
+(function () {
+  if (location.pathname.indexOf('nbca-membership-application') === -1) return;
+  var REDIRECT_TO = '/home';
+  var DELAY_MS = 3000;
+  var done = false;
+
+  function confirmed() {
+    var els = document.querySelectorAll('app-label, .section__name');
+    for (var i = 0; i < els.length; i++) {
+      if ((els[i].textContent || '').toLowerCase().indexOf('submitted successfully') !== -1) return true;
+    }
+    return false;
+  }
+  function check() {
+    if (done || !confirmed()) return;
+    done = true;
+    setTimeout(function () { location.href = REDIRECT_TO; }, DELAY_MS);
+  }
+
+  check();
+  // Primary trigger: the confirmation is rendered by Angular after submit,
+  // so a subtree observer (page lifetime) reliably catches it whenever it
+  // appears. The short poll is just a backstop for initial-render timing.
+  if (document.body) {
+    try { new MutationObserver(check).observe(document.body, { childList: true, subtree: true }); } catch (e) {}
+  }
+  var rn = 0, riv = setInterval(function () { check(); if (done || ++rn > 120) clearInterval(riv); }, 500);
 })();
 
 (function() {
@@ -572,6 +620,7 @@
     phone:   params.get('phone'),
     address: params.get('address'),
     city:    params.get('city'),
+    state:   params.get('state'),
     zip:     params.get('zip')
   };
 
@@ -587,6 +636,10 @@
     phone:   'sl-input[id*="_phone" i], sl-input[type="tel"]',
     address: 'sl-input[id*="_line1_"]',
     city:    'sl-input[id*="_city_"]',
+    // State may render as a text input or a dropdown depending on the MC
+    // address widget, so match both. If it's a dropdown, the value passed in
+    // the magic link must match an option (e.g. "Georgia" vs "GA").
+    state:   'sl-input[id*="_state_"], sl-select[id*="_state_"]',
     zip:     'sl-input[id*="_zip_"]'
   };
 
@@ -1402,7 +1455,7 @@
   // = nextUrl` would drop everything except the path, and the form page would
   // load with no pre-fill data to consume.
   if (nextUrl) {
-    var formParamKeys = ['email', 'fname', 'lname', 'phone', 'address', 'city', 'zip'];
+    var formParamKeys = ['email', 'fname', 'lname', 'phone', 'address', 'city', 'state', 'zip'];
     var carryPairs = [];
     for (var fpi = 0; fpi < formParamKeys.length; fpi++) {
       var fv = params.get(formParamKeys[fpi]);
