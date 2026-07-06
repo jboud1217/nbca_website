@@ -55,11 +55,8 @@
       sessionStorage.setItem(key, '1');
     } catch (e) {}
     if (!ensureGtag()) return;
+    // No PII in event params (GA4 terms prohibit sending emails, etc.).
     var params = { funnel: 'magic_link', ml_step: step };
-    try {
-      var email = sessionStorage.getItem('nbca_ml_email');
-      if (email) params.ml_email = email;
-    } catch (e) {}
     if (extra) for (var k in extra) params[k] = extra[k];
     window.gtag('event', 'magic_link_' + step, params);
   }
@@ -76,7 +73,6 @@
   if (magicUser && magicPass) {
     try {
       sessionStorage.setItem('nbca_ml_funnel', '1');
-      sessionStorage.setItem('nbca_ml_email', magicUser);
     } catch (e) {}
     track('click'); // Stage 1: opened the emailed magic link
   }
