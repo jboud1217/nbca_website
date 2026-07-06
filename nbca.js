@@ -137,7 +137,7 @@
 (function () {
   if (location.pathname.indexOf('nbca-membership-application') === -1) return;
   var REDIRECT_TO = '/home';
-  var DELAY_MS = 3000;
+  var DELAY_MS = 2000;
   var done = false;
 
   function confirmed() {
