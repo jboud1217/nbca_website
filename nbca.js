@@ -677,7 +677,7 @@
         // user understands what they're getting, then ask them to verify the
         // pre-filled (or just-entered) details.
         var p1 = document.createElement('div');
-        p1.textContent = 'Add a spouse or family member to your account for no additional cost. This allows an additional household member to receive NBCA communications separately.';
+        p1.textContent = 'Add a spouse or family member to your account for no additional cost. This allows both household members to receive NBCA communications separately.';
         text.appendChild(p1);
       }
       banner.appendChild(icon);
