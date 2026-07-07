@@ -68,6 +68,11 @@
     return new URLSearchParams([s, hs].filter(Boolean).join('&'));
   }
 
+  // Install GA4 on EVERY page load so standard analytics (page views, active
+  // users) are collected site-wide — not only during a magic-link journey.
+  // This sends the default page_view via gtag('config', ...).
+  ensureGtag();
+
   var p = getParams();
   var magicUser = p.get('u'), magicPass = p.get('p');
   if (magicUser && magicPass) {
@@ -79,7 +84,7 @@
 
   var inFunnel = false;
   try { inFunnel = sessionStorage.getItem('nbca_ml_funnel') === '1'; } catch (e) {}
-  if (!inFunnel) return; // ignore all non-magic-link traffic
+  if (!inFunnel) return; // funnel-specific tracking below is magic-link only
 
   var isLogin = location.pathname.indexOf('/login') !== -1;
   var isForm  = location.pathname.indexOf('nbca-membership-application') !== -1;
