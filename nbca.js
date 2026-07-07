@@ -114,6 +114,10 @@
     }
     if (loggedIn() && isLogin) track('login_success'); // Stage 2
     if (isForm) {
+      // Reaching the form means auto-login worked — reliable fallback for
+      // login_success, which can be missed on the login page due to the fast
+      // redirect. track() de-dupes, so whichever fires first wins.
+      track('login_success');
       track('application_view');                        // Stage 3
       if (prefilledShown())    track('application_prefilled');
       if (memberTypeShown())   track('member_type_step'); // Stage 4a
