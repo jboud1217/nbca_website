@@ -1897,15 +1897,38 @@
   var NEW = 'By providing your email address, you agree to receive emails from '
           + 'North Buckhead Civic Association. You may opt out at any time.';
 
+  // Read the field's current help text from wherever it lives: the helpText
+  // property (what Lit renders from), the reflected attribute, or the text
+  // already painted into the open shadow slot.
+  function currentHelp(el) {
+    var cur = '';
+    try { if (el.helpText != null) cur = String(el.helpText); } catch (e) {}
+    if (!cur) cur = el.getAttribute('help-text') || '';
+    if (!cur && el.shadowRoot) {
+      var ss = el.shadowRoot.querySelector('slot[name="help-text"]');
+      if (ss) cur = ss.textContent || '';
+    }
+    return cur;
+  }
+
   function fix() {
-    // Case A: Shoelace help-text set via the host's help-text attribute/property.
+    // Case A: Shoelace host (sl-input etc.). The text is on the `helpText`
+    // PROPERTY, not the help-text attribute, so read the property/shadow root.
     var hosts = document.querySelectorAll('sl-input, sl-textarea, sl-select');
     for (var i = 0; i < hosts.length; i++) {
       var el = hosts[i];
-      var ht = el.getAttribute('help-text') || '';
-      if (ht.indexOf(MATCH) !== -1 && ht.indexOf('opt out') === -1) {
-        try { el.helpText = NEW; } catch (e) {}
-        el.setAttribute('help-text', NEW);
+      var cur = currentHelp(el);
+      if (cur.indexOf(MATCH) === -1 || cur.indexOf('opt out') !== -1) continue;
+      // Update the property (source of the Lit render) + attribute.
+      try { el.helpText = NEW; } catch (e) {}
+      try { el.setAttribute('help-text', NEW); } catch (e) {}
+      // Belt-and-suspenders: patch the open shadow slot directly, in case the
+      // property change doesn't re-render on this frame.
+      if (el.shadowRoot) {
+        var sl = el.shadowRoot.querySelector('slot[name="help-text"]');
+        if (sl && (sl.textContent || '').indexOf('opt out') === -1) {
+          try { sl.textContent = NEW; } catch (e) {}
+        }
       }
     }
     // Case B: help text provided as a light-DOM slotted element.
@@ -1922,10 +1945,12 @@
   if (document.body) {
     try { obs = new MutationObserver(fix); obs.observe(document.body, { childList: true, subtree: true }); } catch (e) {}
   }
-  // Poll for ~60s to catch late renders / Angular resetting the attribute,
-  // then stop so we don't hold an observer for the page's whole lifetime.
+  // Poll for ~2 min to catch late renders and Angular re-setting the helpText
+  // property (shadow-root re-renders aren't visible to the light-DOM observer
+  // above, so the poll is the real mechanism here), then stop so we don't hold
+  // a timer for the page's whole lifetime.
   var n = 0, iv = setInterval(function () {
     fix();
-    if (++n > 120) { clearInterval(iv); if (obs) obs.disconnect(); }
+    if (++n > 240) { clearInterval(iv); if (obs) obs.disconnect(); }
   }, 500);
 })();
