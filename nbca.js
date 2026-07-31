@@ -1884,3 +1884,48 @@
     open(idx >= 0 ? idx : 0);
   });
 })();
+
+/* ============================================================
+   Email consent help-text override. On the "New Users" registration NG-form,
+   MemberClicks locks the email field's help text so it can't be edited in the
+   form builder. Append the opt-out sentence to it in the DOM instead.
+   Matches by text content (not URL) so it's safe to run anywhere; it only
+   acts when the exact consent text is present and not already updated.
+   ============================================================ */
+(function () {
+  var MATCH = 'you agree to receive emails';
+  var NEW = 'By providing your email address, you agree to receive emails from '
+          + 'North Buckhead Civic Association. You may opt out at any time.';
+
+  function fix() {
+    // Case A: Shoelace help-text set via the host's help-text attribute/property.
+    var hosts = document.querySelectorAll('sl-input, sl-textarea, sl-select');
+    for (var i = 0; i < hosts.length; i++) {
+      var el = hosts[i];
+      var ht = el.getAttribute('help-text') || '';
+      if (ht.indexOf(MATCH) !== -1 && ht.indexOf('opt out') === -1) {
+        try { el.helpText = NEW; } catch (e) {}
+        el.setAttribute('help-text', NEW);
+      }
+    }
+    // Case B: help text provided as a light-DOM slotted element.
+    var slotted = document.querySelectorAll('[slot="help-text"]');
+    for (var j = 0; j < slotted.length; j++) {
+      var s = slotted[j];
+      var t = s.textContent || '';
+      if (t.indexOf(MATCH) !== -1 && t.indexOf('opt out') === -1) s.textContent = NEW;
+    }
+  }
+
+  fix();
+  var obs;
+  if (document.body) {
+    try { obs = new MutationObserver(fix); obs.observe(document.body, { childList: true, subtree: true }); } catch (e) {}
+  }
+  // Poll for ~60s to catch late renders / Angular resetting the attribute,
+  // then stop so we don't hold an observer for the page's whole lifetime.
+  var n = 0, iv = setInterval(function () {
+    fix();
+    if (++n > 120) { clearInterval(iv); if (obs) obs.disconnect(); }
+  }, 500);
+})();
