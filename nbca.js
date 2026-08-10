@@ -1987,7 +1987,12 @@
     + ' font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;'
     + ' font-size: 13px; font-weight: 600; color: #fff; background: rgba(0,0,0,0.55);'
     + ' padding: 5px 12px; border-radius: 14px; letter-spacing: 0.4px; pointer-events: none;'
-    + ' display: none; }';
+    + ' display: none; }'
+    + '.nbca-oja-slider-credit { position: absolute; bottom: 14px; right: 16px; z-index: 60;'
+    + ' font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;'
+    + ' font-size: 12px; font-weight: 600; color: #fff; background: rgba(0,0,0,0.5);'
+    + ' padding: 4px 10px; border-radius: 6px; letter-spacing: 0.3px; pointer-events: none;'
+    + ' text-shadow: 0 1px 2px rgba(0,0,0,0.5); }';
   (document.head || document.documentElement).appendChild(style);
 
   // Overlay a credit on each Oja <img>. Gallery thumbnails already have a
@@ -2000,6 +2005,10 @@
       if (img.dataset.nbcaOja) continue;
       if (!isOja(img.getAttribute('src'))) continue;
       if (img.closest('.nbca-lightbox')) continue;
+      // The Nivo home slider clones its <img> into animation slices; wrapping
+      // those breaks the slider and stamps a credit on every clone. Skip them
+      // here — the slider gets a single overlay credit via stampSlider().
+      if (img.closest('#slider, .nivoSlider')) continue;
       img.dataset.nbcaOja = '1';
       var ga = img.closest('.nbca-gallery a');
       if (ga) {
@@ -2033,7 +2042,23 @@
     }
   }
 
-  function scan() { stampImages(); stampLightbox(); }
+  // Single overlay credit on the Nivo home slider (rather than per-image),
+  // shown while the current slide is one of Matt's photos.
+  function stampSlider() {
+    var slider = document.querySelector('#slider.nivoSlider') || document.querySelector('.nivoSlider') || document.getElementById('slider');
+    if (!slider) return;
+    var anyOja = slider.querySelector('img[src*="OjaPhotos" i]');
+    if (!anyOja) return;
+    try { if (window.getComputedStyle(slider).position === 'static') slider.style.position = 'relative'; } catch (e) {}
+    var c = slider.querySelector('.nbca-oja-slider-credit');
+    if (!c) { c = makeCredit('nbca-oja-slider-credit'); slider.appendChild(c); }
+    // If the slide currently shown is Matt's, show it; default to shown when
+    // we can't identify a distinct main image (e.g. all slides are his).
+    var main = slider.querySelector('.nivo-main-image');
+    c.style.display = (!main || isOja(main.getAttribute('src'))) ? 'block' : 'none';
+  }
+
+  function scan() { stampImages(); stampLightbox(); stampSlider(); }
 
   scan();
   // Watch for gallery/lightbox images added later (Angular/lazy render). The
