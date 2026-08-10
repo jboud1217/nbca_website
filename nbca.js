@@ -1954,3 +1954,108 @@
     if (++n > 240) { clearInterval(iv); if (obs) obs.disconnect(); }
   }, 500);
 })();
+
+/* ============================================================
+   Photo credit / watermark for Matt Oja's photography. Any image served
+   from /assets/images/OjaPhotos/ gets a small "© Matt Oja" credit overlaid
+   in the bottom-right corner — on gallery thumbnails, inline images, and the
+   fullscreen lightbox. Matches by URL path, so it applies wherever those
+   photos are used.
+   ============================================================ */
+(function () {
+  var OJA = 'ojaphotos';
+  var CREDIT = '© Matt Oja';
+  function isOja(src) { return (src || '').toLowerCase().indexOf(OJA) !== -1; }
+  function makeCredit(cls) {
+    var s = document.createElement('span');
+    s.className = cls;
+    s.textContent = CREDIT;
+    return s;
+  }
+
+  var style = document.createElement('style');
+  style.textContent =
+      '.nbca-oja-wrap { position: relative; display: inline-block; max-width: 100%; line-height: 0; }'
+    + '.nbca-oja-wrap > img { max-width: 100%; height: auto; }'
+    + '.nbca-oja-credit { position: absolute; bottom: 6px; right: 8px; z-index: 3;'
+    + ' font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;'
+    + ' font-size: 11px; font-weight: 600; line-height: 1.4; color: #fff;'
+    + ' background: rgba(0,0,0,0.45); padding: 2px 7px; border-radius: 4px;'
+    + ' letter-spacing: 0.3px; pointer-events: none; white-space: nowrap;'
+    + ' text-shadow: 0 1px 2px rgba(0,0,0,0.55); }'
+    + '.nbca-lightbox-credit { position: absolute; bottom: 24px; right: 24px; z-index: 100000;'
+    + ' font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;'
+    + ' font-size: 13px; font-weight: 600; color: #fff; background: rgba(0,0,0,0.55);'
+    + ' padding: 5px 12px; border-radius: 14px; letter-spacing: 0.4px; pointer-events: none;'
+    + ' display: none; }';
+  (document.head || document.documentElement).appendChild(style);
+
+  // Overlay a credit on each Oja <img>. Gallery thumbnails already have a
+  // position:relative anchor, so drop the credit straight in; other images
+  // get wrapped in a positioned span. Lightbox images are handled separately.
+  function stampImages() {
+    var imgs = document.querySelectorAll('img');
+    for (var i = 0; i < imgs.length; i++) {
+      var img = imgs[i];
+      if (img.dataset.nbcaOja) continue;
+      if (!isOja(img.getAttribute('src'))) continue;
+      if (img.closest('.nbca-lightbox')) continue;
+      img.dataset.nbcaOja = '1';
+      var ga = img.closest('.nbca-gallery a');
+      if (ga) {
+        if (!ga.querySelector('.nbca-oja-credit')) ga.appendChild(makeCredit('nbca-oja-credit'));
+        continue;
+      }
+      var p = img.parentNode;
+      if (!p) continue;
+      var wrap = document.createElement('span');
+      wrap.className = 'nbca-oja-wrap';
+      try { if (window.getComputedStyle(img).display === 'block') wrap.style.display = 'block'; } catch (e) {}
+      p.insertBefore(wrap, img);
+      wrap.appendChild(img);
+      wrap.appendChild(makeCredit('nbca-oja-credit'));
+    }
+  }
+
+  // Show a credit in the fullscreen lightbox when the current image is Matt's.
+  var lbHooked = false;
+  function stampLightbox() {
+    var lb = document.querySelector('.nbca-lightbox');
+    if (!lb) return;
+    var c = lb.querySelector('.nbca-lightbox-credit');
+    if (!c) { c = makeCredit('nbca-lightbox-credit'); lb.appendChild(c); }
+    var img = lb.querySelector('img');
+    c.style.display = (lb.classList.contains('open') && img && isOja(img.getAttribute('src'))) ? 'block' : 'none';
+    if (!lbHooked && img) {
+      lbHooked = true;
+      try { new MutationObserver(stampLightbox).observe(lb, { attributes: true, attributeFilter: ['class'] }); } catch (e) {}
+      try { new MutationObserver(stampLightbox).observe(img, { attributes: true, attributeFilter: ['src'] }); } catch (e) {}
+    }
+  }
+
+  function scan() { stampImages(); stampLightbox(); }
+
+  scan();
+  // Watch for gallery/lightbox images added later (Angular/lazy render). The
+  // callback only fires scan() when an <img> or the gallery/lightbox appears.
+  if (document.body) {
+    try {
+      new MutationObserver(function (muts) {
+        for (var i = 0; i < muts.length; i++) {
+          var added = muts[i].addedNodes;
+          for (var j = 0; j < added.length; j++) {
+            var nd = added[j];
+            if (nd.nodeType !== 1) continue;
+            if (nd.tagName === 'IMG'
+              || (nd.querySelector && nd.querySelector('img'))
+              || (nd.classList && (nd.classList.contains('nbca-lightbox') || nd.classList.contains('nbca-gallery')))) {
+              scan();
+              return;
+            }
+          }
+        }
+      }).observe(document.body, { childList: true, subtree: true });
+    } catch (e) {}
+  }
+  var on = 0, oiv = setInterval(function () { scan(); if (++on > 40) clearInterval(oiv); }, 500);
+})();
