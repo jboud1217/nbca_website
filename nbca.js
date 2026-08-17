@@ -1810,9 +1810,37 @@
     try { maybeResetSentBanner(); } catch (e) {}
   }
 
-  tick();
-  var intervalId = setInterval(tick, 300);
-  setTimeout(function () { clearInterval(intervalId); }, 10000);
+  // Drive tick() from real load signals AND DOM mutations, not just a short
+  // fixed timer. On a slow connection (or slow Angular render) the login form
+  // can appear well after a 10s window would have closed — which made the
+  // emailed magic link silently fail. Now auto-login fires the moment the form
+  // is actually in the DOM, however long the page takes, with a polling
+  // backstop for anything the observer misses.
+  function runTick() { try { tick(); } catch (e) {} }
+  runTick();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', runTick);
+  window.addEventListener('load', runTick);
+
+  var loginObserver = null;
+  if (document.body) {
+    try {
+      loginObserver = new MutationObserver(runTick);
+      loginObserver.observe(document.body, { childList: true, subtree: true });
+    } catch (e) {}
+  }
+
+  // Poll as a backstop for ~30s (the login form, or the logged-in state on the
+  // redirect target, can render late), then stop watching the DOM so we don't
+  // hold an observer for the page's whole lifetime. autoLogin/maybeRedirect are
+  // self-guarded, so repeated calls are safe and idempotent.
+  var loginTicks = 0;
+  var intervalId = setInterval(function () {
+    runTick();
+    if (++loginTicks > 100) {
+      clearInterval(intervalId);
+      if (loginObserver) loginObserver.disconnect();
+    }
+  }, 300);
 })();
 
 (function () {
