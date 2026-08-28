@@ -2112,3 +2112,34 @@
   }
   var on = 0, oiv = setInterval(function () { scan(); if (++on > 40) clearInterval(oiv); }, 500);
 })();
+
+/* ============================================================
+   Highlight the "A Safer Wieuca" main-menu item as a yellow button so the
+   Wieuca safety campaign stands out in the navigation. Targets the menu item
+   by its stable Joomla item class (item173) and, as a fallback, by its link
+   href — so it keeps working even if the item id changes.
+   ============================================================ */
+(function () {
+  var s = document.createElement('style');
+  s.textContent =
+      '.mc-mainmenu .menu li.item173 > a,'
+    + ' .mc-mainmenu .menu a[href="/a-safer-wieuca"] {'
+    + '   display: inline-block;'
+    + '   background: #ffd21f !important;'
+    + '   color: #1a1a1a !important;'
+    + '   font-weight: 700 !important;'
+    + '   padding: 6px 16px !important;'
+    + '   border-radius: 6px !important;'
+    + '   box-shadow: 0 1px 3px rgba(0,0,0,0.25);'
+    + '   transition: background 0.2s ease, transform 0.2s ease;'
+    + ' }'
+    + ' .mc-mainmenu .menu li.item173 > a span,'
+    + ' .mc-mainmenu .menu a[href="/a-safer-wieuca"] span { color: #1a1a1a !important; }'
+    + ' .mc-mainmenu .menu li.item173 > a:hover,'
+    + ' .mc-mainmenu .menu a[href="/a-safer-wieuca"]:hover {'
+    + '   background: #f5c400 !important;'
+    + '   color: #1a1a1a !important;'
+    + '   transform: translateY(-1px);'
+    + ' }';
+  (document.head || document.documentElement).appendChild(s);
+})();
