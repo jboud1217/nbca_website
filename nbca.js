@@ -2143,3 +2143,73 @@
     + ' }';
   (document.head || document.documentElement).appendChild(s);
 })();
+
+/* ============================================================
+   General site polish (progressive enhancement — all fail-safe).
+     - Back-to-top button on long pages
+     - Smooth scrolling for in-page anchor links (respects reduced-motion)
+     - External links open in a new tab (keeps nbca.org open behind them)
+   Everything here is additive: if any of it errors, the page is
+   unaffected — no content is hidden and navigation still works.
+   ============================================================ */
+(function () {
+  var style = document.createElement('style');
+  style.textContent =
+      '@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }'
+    + '#nbca-to-top { position: fixed; bottom: 24px; right: 24px; z-index: 99990;'
+    + ' width: 46px; height: 46px; padding: 0; border: 0; border-radius: 50%; cursor: pointer;'
+    + ' background: #005189; color: #fff; font-size: 22px; line-height: 46px; text-align: center;'
+    + ' box-shadow: 0 4px 14px rgba(0,0,0,0.25); opacity: 0; visibility: hidden; transform: translateY(10px);'
+    + ' transition: opacity 0.25s ease, transform 0.25s ease, background 0.2s ease;'
+    + ' font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; }'
+    + '#nbca-to-top.show { opacity: 1; visibility: visible; transform: translateY(0); }'
+    + '#nbca-to-top:hover { background: #00406d; }'
+    + '@media print { #nbca-to-top { display: none !important; } }';
+  (document.head || document.documentElement).appendChild(style);
+
+  // ---- Back-to-top button ----
+  function initTopButton() {
+    if (!document.body || document.getElementById('nbca-to-top')) return;
+    var btn = document.createElement('button');
+    btn.id = 'nbca-to-top';
+    btn.type = 'button';
+    btn.setAttribute('aria-label', 'Back to top');
+    btn.innerHTML = '↑';
+    document.body.appendChild(btn);
+    btn.addEventListener('click', function () {
+      try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) { window.scrollTo(0, 0); }
+    });
+    function onScroll() {
+      var y = window.pageYOffset || document.documentElement.scrollTop || 0;
+      if (y > 400) btn.classList.add('show'); else btn.classList.remove('show');
+    }
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+  }
+  initTopButton();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initTopButton);
+
+  // ---- External links open in a new tab (NBCA + MemberClicks treated as internal) ----
+  function markExternal() {
+    var links = document.querySelectorAll('a[href]:not([data-nbca-ext])');
+    for (var i = 0; i < links.length; i++) {
+      var a = links[i];
+      a.setAttribute('data-nbca-ext', '1'); // process each link once
+      if (a.target) continue;               // respect an existing target
+      var href = a.getAttribute('href') || '';
+      if (!/^https?:\/\//i.test(href)) continue; // only absolute http(s) links
+      var h;
+      try { h = new URL(href, location.href).hostname.toLowerCase(); } catch (e) { continue; }
+      if (!h || h === location.hostname.toLowerCase()) continue;
+      if (/(^|\.)nbca\.org$/.test(h) || /memberclicks\.net$/.test(h)) continue; // internal
+      a.target = '_blank';
+      var rel = a.getAttribute('rel') || '';
+      if (rel.indexOf('noopener') === -1) rel = (rel + ' noopener noreferrer').replace(/\s+/g, ' ').trim();
+      a.setAttribute('rel', rel);
+    }
+  }
+  markExternal();
+  if (document.body) {
+    try { new MutationObserver(markExternal).observe(document.body, { childList: true, subtree: true }); } catch (e) {}
+  }
+})();
