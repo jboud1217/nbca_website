@@ -1,4 +1,24 @@
 /* ============================================================
+   Shared form-page detection. ONE place that decides which MemberClicks
+   ngforms page we're on, used by every block below that used to hard-code
+   'nbca-membership-application':
+     'join'    -> /nbca-membership-application (new-member join form)
+     'renewal' -> /renewal-form (logged-in renewal form, ?servId=...)
+     ''        -> any other page
+   Top-level (classic script), so it is visible inside every IIFE below.
+   ============================================================ */
+var NBCA_FORM_PATHS = {
+  join: /nbca-membership-application/i,
+  renewal: /\/renewal-form(\/|$)/i
+};
+function nbcaFormKind(pathname) {
+  var p = pathname == null ? location.pathname : String(pathname);
+  if (NBCA_FORM_PATHS.join.test(p)) return 'join';
+  if (NBCA_FORM_PATHS.renewal.test(p)) return 'renewal';
+  return '';
+}
+
+/* ============================================================
    Magic-link funnel analytics (Google Analytics 4)
 
    Fires one event per funnel stage so we can see how far a
@@ -87,10 +107,14 @@
   if (!inFunnel) return; // funnel-specific tracking below is magic-link only
 
   var isLogin = location.pathname.indexOf('/login') !== -1;
-  var isForm  = location.pathname.indexOf('nbca-membership-application') !== -1;
+  // Join AND renewal forms (a magic-link renewal email can point next= at
+  // /renewal-form). Events carry form_kind so the two funnels stay separable.
+  var formKind = nbcaFormKind();
+  var isForm  = formKind !== '';
+  var formExtra = isForm ? { form_kind: formKind } : null;
 
   function loggedIn()        { return !!document.querySelector('a[href*="logout"], a.logout-link'); }
-  function memberTypeShown() { return !!document.querySelector('sl-select[id*="_212914070_"], .nbca-radio-group'); }
+  function memberTypeShown() { return !!document.querySelector('sl-select[id*="_212914070_"], sl-select[id*="_202443959_"], .nbca-radio-group'); }
   function paymentShown()    { return !!document.querySelector('formly-group.credit-card, formly-field.credit-card__number'); }
   function prefilledShown()  {
     var el = document.querySelector('sl-input[id*="_firstName_"], sl-input[id*="_email_"]');
@@ -118,11 +142,11 @@
       // login_success, which can be missed on the login page due to the fast
       // redirect. track() de-dupes, so whichever fires first wins.
       track('login_success');
-      track('application_view');                        // Stage 3
-      if (prefilledShown())    track('application_prefilled');
-      if (memberTypeShown())   track('member_type_step'); // Stage 4a
-      if (paymentShown())      track('payment_step');     // Stage 4b
-      if (confirmationShown()) track('complete');         // Stage 5: submitted
+      track('application_view', formExtra);             // Stage 3
+      if (prefilledShown())    track('application_prefilled', formExtra);
+      if (memberTypeShown())   track('member_type_step', formExtra); // Stage 4a
+      if (paymentShown())      track('payment_step', formExtra);     // Stage 4b
+      if (confirmationShown()) track('complete', formExtra);         // Stage 5: submitted
     }
   }
 
@@ -144,7 +168,10 @@
    membership application, not just magic-link visitors.
    ============================================================ */
 (function () {
-  if (location.pathname.indexOf('nbca-membership-application') === -1) return;
+  // Join form only. Renewals are deliberately NOT auto-redirected: a renewing
+  // member may want to read / print the confirmation, so the renewal block at
+  // the end of this file adds "Back to home" / "My profile" links instead.
+  if (nbcaFormKind() !== 'join') return;
   var REDIRECT_TO = '/home';
   var DELAY_MS = 2000;
   var done = false;
@@ -619,7 +646,13 @@
 })();
 
 (function () {
-  if (location.pathname.indexOf('nbca-membership-application') === -1) return;
+  // Join AND renewal: both forms share the same ngforms components (registrant
+  // wrappers, "Create Linked Profile", "Membership Options / N period - $X",
+  // Organization field, formly-group.credit-card). Every function below is
+  // presence-gated, so steps that don't exist on a form are simply no-ops.
+  // URL pre-fill only fills EMPTY fields, so it never overwrites the renewal
+  // form's profile-prefilled values.
+  if (!nbcaFormKind()) return;
 
   var params = new URLSearchParams(location.search);
   var presets = {
@@ -778,8 +811,15 @@
   }
 
   function hideOrgFields() {
-    var orgInput = document.querySelector('sl-input[id*="_212914073_"]');
-    if (orgInput && orgInput.dataset.nbcaOrgHidden !== '1') {
+    var orgInput = document.querySelector('sl-input[id*="_212914073_"], sl-input[id*="_202443962_"]');
+    // The renewal block below will not hide a required Organization field,
+    // because a hidden required field cannot be filled and blocks Submit.
+    // This shared helper runs on renewal too, so the renewal field id has to
+    // honor the same guard. The join field id stays unconditionally hidden.
+    var renewalOrgRequired = !!(orgInput
+      && (orgInput.id || '').indexOf('_202443962_') !== -1
+      && (orgInput.required || orgInput.hasAttribute('required')));
+    if (orgInput && orgInput.dataset.nbcaOrgHidden !== '1' && !renewalOrgRequired) {
       var field = orgInput.closest('formly-field');
       (field || orgInput).style.display = 'none';
       orgInput.dataset.nbcaOrgHidden = '1';
@@ -790,6 +830,7 @@
       if (el.children.length > 0) return;
       var txt = (el.textContent || '').trim().replace(/\*+\s*$/, '').trim();
       if (txt === 'Organization Name' || txt === 'Organization') {
+        if (renewalOrgRequired) return;
         el.style.display = 'none';
         el.dataset.nbcaOrgHidden = '1';
       }
@@ -1181,19 +1222,35 @@
 
     var attrLabel = sel.getAttribute('label');
     if (attrLabel && attrLabel.trim() === 'Member Type') return true;
+    // Angular may bind `label` as a PROPERTY (no attribute) — renewal form.
+    if (typeof sel.label === 'string' && sel.label.trim() === 'Member Type') return true;
 
     // The Member Type label isn't a <label> sibling — MemberClicks renders it
     // via a separate component (often `.generic-header-wrapper__name`), so
     // include that selector plus headings in the upward walk.
     var p = sel.parentElement;
     for (var hops = 0; p && hops < 6; hops++, p = p.parentElement) {
-      var labels = p.querySelectorAll('label, legend, .generic-header-wrapper__name, h1, h2, h3, h4, h5, h6');
+      var labels = p.querySelectorAll('label, legend, app-label, .generic-header-wrapper__name, h1, h2, h3, h4, h5, h6');
       for (var i = 0; i < labels.length; i++) {
         var t = labels[i].textContent.replace(/\*+\s*$/, '').trim();
         if (t === 'Member Type') return true;
       }
     }
     return false;
+  }
+
+  // Live Member Type select. Join form: stable field id. Renewal form (and
+  // any form whose field id differs): the captured element if still in the
+  // DOM, else re-find it by label — never a stale detached reference.
+  function findLiveMemberTypeSelect(fallback) {
+    var byId = document.querySelector('sl-select[id*="_212914070_"]');
+    if (byId) return byId;
+    if (fallback && fallback.isConnected) return fallback;
+    var all = document.querySelectorAll('sl-select');
+    for (var i = 0; i < all.length; i++) {
+      if (isMemberTypeSelect(all[i])) return all[i];
+    }
+    return fallback;
   }
 
   function readOptions(slSelect) {
@@ -1367,7 +1424,7 @@
         // Re-resolve the sl-select on each click: Angular may have replaced
         // the original element after a prior change, so the captured reference
         // could be stale. The MemberClicks field ID is stable across renders.
-        var live = document.querySelector('sl-select[id*="_212914070_"]') || slSelect;
+        var live = findLiveMemberTypeSelect(slSelect);
         try { live.value = opt.value; } catch (e) {}
         // Only dispatch the Shoelace CustomEvents — Angular's formly-shoelace
         // bindings listen on sl-change. Native Event('input') / Event('change')
@@ -1500,8 +1557,11 @@
   function isResetPasswordPage() {
     return location.hash.indexOf('reset-password') !== -1;
   }
+  // Join + renewal. Only used to SUPPRESS the welcome / reset-password banner:
+  // it shouldn't slide in over a form mid-payment (renewal included); it still
+  // shows on the next non-form page.
   function isFormPage() {
-    return location.pathname.indexOf('nbca-membership-application') !== -1;
+    return !!nbcaFormKind();
   }
 
   function fireNativeEvent(el, type) {
@@ -2212,4 +2272,528 @@
   if (document.body) {
     try { new MutationObserver(markExternal).observe(document.body, { childList: true, subtree: true }); } catch (e) {}
   }
+})();
+
+/* ============================================================
+   RENEWAL FORM (/renewal-form?servId=...) — modernization
+   ------------------------------------------------------------
+   Mirrors the join-form polish for the logged-in renewal form
+   (single-page Angular "ngforms" app: mc-root > app-form > form >
+   formly-form, Shoelace sl-* components; the URL never changes
+   between steps: 1 Membership -> 2 Household -> 3 Payment).
+
+   What the SHARED blocks above already do here (because their
+   path checks use nbcaFormKind()):
+     - Join customizations block: card-type auto-detect from the card
+       number, "verify your info" banner + auto-expand of "(Self)",
+       "Add Spouse / Family Member" rename + spouse flow, hiding the
+       "Membership Options" / "1 period - $X" lines, Org -> Household.
+     - Member Type radio block (global): dropdown -> radio cards, found
+       by its "Member Type" label (renewal uses a different field id).
+     - Global CSS: compact credit-card grid.
+
+   What THIS block adds (renewal only, scoped to
+   html[data-nbca-renewal="1"]):
+     - Friendly intro line + 3-step progress indicator
+       (Membership, Household, Payment) derived from what's on screen.
+     - Hides MemberClicks' own intro sentence (replaced by ours) and the
+       optional "Organization Name" field (found by label/field id; a
+       REQUIRED field is never hidden).
+     - Price pill on each membership radio card, "Amount due" line under
+       the choices (read from MemberClicks' own computed "N period - $X"
+       text), prominent Total on the payment step plus a soft warning if
+       the Total doesn't match the chosen membership's price.
+     - Consistent Previous / Next / Submit Payment button styling (big
+       green Submit Payment) and a hint while Submit is disabled.
+     - A "Back to home" link on the confirmation screen (renewals are NOT
+       auto-redirected like joins, so members can read their confirmation).
+
+   Never sets any form value (member type changes go through the radio
+   block, which uses only Shoelace sl-input/sl-change events exactly as on
+   the join form). Never reads card fields. No network calls. Idempotent:
+   every write is conditional, so re-running on each mutation is a no-op
+   once the page is in the desired state.
+
+   Debug (in the browser console on the renewal form):
+     nbcaRenewalDebug()  -> structural info only (no field values).
+   ============================================================ */
+(function () {
+  if (typeof nbcaFormKind !== 'function' || nbcaFormKind() !== 'renewal') return;
+  if (window.__nbcaRenewalInit) return;
+  window.__nbcaRenewalInit = true;
+
+  // ---- Config ---------------------------------------------------------------
+  var INTRO = 'Renewing is easy: pick your membership, confirm your household, then pay.';
+  var STEPS = ['Membership', 'Household', 'Payment'];
+  var HINTS = {
+    0: 'Sign in below to start your renewal.',
+    1: 'Choose the membership you\u2019d like to renew, then click Next.',
+    2: 'Confirm your household details. You can add a spouse or family member at no extra cost.',
+    3: 'Check your total, enter your card details, then click Submit Payment.',
+    4: 'Thank you for renewing your NBCA membership!'
+  };
+  // Optional-only fields to hide on renewal, by (normalized) label. The join
+  // block renames "Organization" -> "Household" in text, so match both.
+  var HIDE_FIELD_LABELS = ['organization name', 'household name'];
+  // Known renewal-form field ids (formly_N_<Component>_<fieldId>_<k>); labels
+  // are the primary lookup, ids are a fallback.
+  var MEMBER_TYPE_IDS = ['_212914070_', '_202443959_'];
+  var ORG_FIELD_IDS = ['_212914073_', '_202443962_'];
+  var MC_INTRO_RE = /^To update and renew your Household.s membership/i;
+  var PERIOD_RE = /^\d+\s+period\s*-\s*\$\s*([\d,]+(?:\.\d{1,2})?)$/i;
+  var TOTAL_RE = /^Total:?\s*\$\s*([\d,]+(?:\.\d{1,2})?)$/i;
+  var PRICE_IN_LABEL_RE = /^(.*?)\s*[-\u2013\u2014]\s*\$\s*([\d,]+(?:\.\d{1,2})?)\s*$/;
+  var CONFIRM_RE = /submitted successfully|has been (received|processed)|thank you for (your )?renew/i;
+  var CHOICE_KEY = 'nbca_renew_choice';
+
+  var root = document.documentElement;
+  if (root.getAttribute('data-nbca-renewal') !== '1') root.setAttribute('data-nbca-renewal', '1');
+
+  // ---- Styles ---------------------------------------------------------------
+  function injectCss() {
+    if (document.getElementById('nbca-renewal-css')) return;
+    var R = 'html[data-nbca-renewal="1"] ';
+    var css = ''
+      + R + '.nbca-renew-head { margin: 4px 0 22px; }'
+      + R + '.nbca-renew-intro { margin: 0 0 14px; padding: 12px 16px; background: #eaf3fa; border-left: 4px solid #005189; border-radius: 6px; color: #003d66; font-size: 1.05rem; font-weight: 600; line-height: 1.4; }'
+      + R + '.nbca-renew-hint { margin: 10px 2px 0; color: #336b8f; font-size: .95rem; }'
+      + R + '.nbca-steps { display: flex; gap: 8px; list-style: none; margin: 0; padding: 0; }'
+      + R + '.nbca-steps[hidden] { display: none; }'
+      + R + '.nbca-step { flex: 1 1 0; display: flex; align-items: center; gap: 8px; min-width: 0; margin: 0; padding: 10px 12px; border-radius: 8px; background: #f2f5f8; color: #5b6b78; font-weight: 600; font-size: .95rem; }'
+      + R + '.nbca-step::before { content: none !important; }'
+      + R + '.nbca-step__num { flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: #c3ced8; color: #fff; font-size: .85rem; font-weight: 700; }'
+      + R + '.nbca-step__label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }'
+      + R + '.nbca-step.is-current { background: #eaf3fa; color: #005189; box-shadow: inset 0 0 0 2px #005189; }'
+      + R + '.nbca-step.is-current .nbca-step__num { background: #005189; }'
+      + R + '.nbca-step.is-done { color: #2f6f1a; }'
+      + R + '.nbca-step.is-done .nbca-step__num { background: #3a8a1f; }'
+      + '@media (max-width: 600px) { ' + R + '.nbca-step { padding: 8px; gap: 6px; font-size: .85rem; } ' + R + '.nbca-steps { gap: 6px; } }'
+
+      // Member Type: radio cards (built by the global radio block). Hide the
+      // original dropdown whenever our radio group sits right before it
+      // (sibling-based, so it's only hidden once the radios exist).
+      + R + '.nbca-radio-group + formly-field app-single-select, ' + R + '.nbca-radio-group + formly-field sl-select { display: none !important; }'
+      + R + '.nbca-radio-heading { margin: 6px 0 4px; font-weight: 600; color: #1a1a1a; }'
+      + R + '.nbca-radio-group { max-width: none; }'
+      + R + '.nbca-radio-option { padding: 16px 18px; }'
+      + R + '.nbca-radio-price { margin-left: auto; padding-left: 12px; font-weight: 700; color: #005189; font-size: 1.05rem; white-space: nowrap; }'
+      + R + '.nbca-renew-due { margin: 4px 0 16px; font-size: 1rem; color: #1a1a1a; }'
+      + R + '.nbca-renew-due strong { color: #005189; }'
+
+      // Payment step total
+      + R + '.nbca-renew-total { display: inline-block; margin: 4px 0 6px; padding: 10px 16px; border-radius: 8px; background: #eaf3fa; color: #003d66 !important; font-size: 1.25rem !important; font-weight: 700 !important; }'
+      + R + '.nbca-renew-for { margin: 0 0 12px; color: #336b8f; font-size: .95rem; }'
+      + R + '.nbca-renew-warn { margin: 0 0 14px; padding: 10px 14px; border-radius: 6px; background: #fff6e0; border: 1px solid #e0b84c; color: #6b4e00; font-size: .95rem; }'
+
+      // Pager buttons (Shoelace sl-button -> style its ::part(base))
+      + R + '.form-pager { display: flex !important; flex-wrap: wrap; justify-content: center; align-items: center; gap: 12px; margin: 26px 0 8px !important; }'
+      + R + '.form-pager sl-button[data-nbca-btn]::part(base) { min-height: 46px; padding: 0 26px; border-radius: 8px; font-size: 1rem; font-weight: 600; line-height: 44px; transition: background-color .15s, border-color .15s, box-shadow .15s; }'
+      + R + '.form-pager [data-nbca-btn="prev"] { order: 0; }'
+      + R + '.form-pager [data-nbca-btn="next"], ' + R + '.form-pager [data-nbca-btn="submit"] { order: 1; }'
+      + R + 'sl-button[data-nbca-btn="next"]::part(base) { background: #005189; border: 1px solid #005189; color: #fff; }'
+      + R + 'sl-button[data-nbca-btn="next"]:hover::part(base) { background: #003d66; border-color: #003d66; }'
+      + R + 'sl-button[data-nbca-btn="prev"]::part(base) { background: #fff; border: 1px solid #9fb3c4; color: #005189; }'
+      + R + 'sl-button[data-nbca-btn="prev"]:hover::part(base) { border-color: #005189; background: #f7f9fb; }'
+      + R + 'sl-button[data-nbca-btn="submit"]::part(base) { min-height: 54px; padding: 0 40px; background: #3a8a1f; border: 1px solid #3a8a1f; color: #fff; font-size: 1.1rem; font-weight: 700; box-shadow: 0 2px 6px rgba(0,0,0,.15); }'
+      + R + 'sl-button[data-nbca-btn="submit"]:hover::part(base) { background: #2f7318; border-color: #2f7318; }'
+      + R + 'sl-button[data-nbca-btn][disabled]::part(base) { opacity: .55; cursor: not-allowed; box-shadow: none; }'
+      + R + 'button[data-nbca-btn="submit"] { min-height: 54px; padding: 0 40px; background: #3a8a1f; border: 1px solid #3a8a1f; color: #fff; font-weight: 700; border-radius: 8px; }'
+      + R + '.nbca-submit-hint { flex-basis: 100%; order: 2; text-align: center; color: #5b6b78; font-size: .9rem; margin-top: 2px; }'
+      + R + 'sl-button[data-nbca-linked-renamed="1"]::part(base) { min-height: 42px; border: 1px dashed #005189; background: #fff; color: #005189; border-radius: 8px; font-weight: 600; }'
+      + '@media (max-width: 600px) { '
+      +   R + '.form-pager sl-button[data-nbca-btn] { flex: 1 1 100%; } '
+      +   R + '.form-pager sl-button[data-nbca-btn]::part(base) { width: 100%; } '
+      +   R + '.form-pager [data-nbca-btn="submit"], ' + R + '.form-pager [data-nbca-btn="next"] { order: -1; } '
+      + '}'
+
+      // Confirmation
+      + R + '.nbca-renew-done { margin: 18px 0; display: flex; gap: 12px; flex-wrap: wrap; }'
+      + R + '.nbca-renew-done a { display: inline-block; padding: 12px 22px; border-radius: 8px; font-weight: 600; text-decoration: none !important; }'
+      + R + '.nbca-renew-done a.nbca-primary { background: #005189; color: #fff !important; }'
+      + R + '.nbca-renew-done a.nbca-secondary { border: 1px solid #9fb3c4; color: #005189 !important; background: #fff; }';
+    var s = document.createElement('style');
+    s.id = 'nbca-renewal-css';
+    s.textContent = css;
+    (document.head || document.documentElement).appendChild(s);
+  }
+
+  // ---- Small helpers --------------------------------------------------------
+  function norm(t) { return String(t || '').replace(/\s+/g, ' ').replace(/\*+\s*$/, '').trim().toLowerCase(); }
+  function isVisible(el) { return !!(el && el.isConnected && el.getClientRects().length > 0); }
+  function anyVisible(sel) {
+    var l = document.querySelectorAll(sel);
+    for (var i = 0; i < l.length; i++) if (isVisible(l[i])) return true;
+    return false;
+  }
+  function idHas(el, list) {
+    var id = (el && el.id) || '';
+    for (var i = 0; i < list.length; i++) if (id.indexOf(list[i]) !== -1) return true;
+    return false;
+  }
+  function setText(el, t) { if (el && el.textContent !== t) el.textContent = t; }
+  function setAttr(el, k, v) { if (el && el.getAttribute(k) !== v) el.setAttribute(k, v); }
+  function toggleClass(el, c, on) { if (el && el.classList.contains(c) !== !!on) el.classList.toggle(c, !!on); }
+  function money(n) { return '$' + Number(n).toFixed(2); }
+  function parseMoney(s) { var n = parseFloat(String(s).replace(/,/g, '')); return isNaN(n) ? null : n; }
+  // Leaf-ish elements whose own trimmed text matches `re` (deepest match only).
+  function findTextEls(re, scope, sel) {
+    var out = [];
+    var list = (scope || document).querySelectorAll(sel || 'app-label, label, h2, h3, h4, p, span, div, strong, b');
+    for (var i = 0; i < list.length; i++) {
+      var el = list[i];
+      if (el.closest('.nbca-renew-head, .nbca-renew-due, .nbca-radio-group')) continue;
+      var t = (el.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!t || t.length > 200 || !re.test(t)) continue;
+      var deeper = false;
+      for (var c = el.firstElementChild; c; c = c.nextElementSibling) {
+        if (re.test((c.textContent || '').replace(/\s+/g, ' ').trim())) { deeper = true; break; }
+      }
+      if (!deeper) out.push(el);
+    }
+    return out;
+  }
+  function fieldLabel(el) {
+    var t = el.getAttribute('label') || (typeof el.label === 'string' ? el.label : '');
+    if (!t) {
+      var ff = el.closest('formly-field');
+      var l = ff && ff.querySelector('label, app-label, .generic-header-wrapper__name');
+      if (l) t = l.textContent;
+    }
+    return norm(t);
+  }
+  function appForm() { return document.querySelector('app-form') || document.querySelector('mc-root') || document.body; }
+
+  // ---- Member type ----------------------------------------------------------
+  function findMemberTypeSelect() {
+    var all = document.querySelectorAll('sl-select');
+    for (var i = 0; i < all.length; i++) {
+      if (idHas(all[i], MEMBER_TYPE_IDS) || fieldLabel(all[i]) === 'member type') return all[i];
+    }
+    return null;
+  }
+  function selectedOptionLabel(sel) {
+    if (!sel) return '';
+    var v = sel.value == null ? '' : String(sel.value);
+    if (!v) return '';
+    var opts = sel.querySelectorAll('sl-option, sl-menu-item, option');
+    for (var i = 0; i < opts.length; i++) {
+      var ov = opts[i].getAttribute('value');
+      if (ov == null) ov = opts[i].value;
+      if (String(ov) === v) return (opts[i].textContent || '').trim();
+    }
+    return '';
+  }
+  function splitPrice(label) {
+    var m = PRICE_IN_LABEL_RE.exec(String(label || '').trim());
+    return m ? { name: m[1].replace(/\s+-\s+/g, ' \u2013 '), price: parseMoney(m[2]) } : null;
+  }
+  function rememberChoice() {
+    var sel = findMemberTypeSelect();
+    var label = selectedOptionLabel(sel);
+    var sp = splitPrice(label);
+    if (!sp) return;
+    var val = JSON.stringify({ name: sp.name, price: sp.price });
+    try { if (sessionStorage.getItem(CHOICE_KEY) !== val) sessionStorage.setItem(CHOICE_KEY, val); } catch (e) {}
+  }
+  function readChoice() {
+    try { return JSON.parse(sessionStorage.getItem(CHOICE_KEY) || 'null'); } catch (e) { return null; }
+  }
+
+  function decorateRadios() {
+    var groups = document.querySelectorAll('.nbca-radio-group');
+    for (var g = 0; g < groups.length; g++) {
+      var group = groups[g];
+      // Price pills: "Single Family - Two Year - $90" -> name + "$90"
+      var labels = group.querySelectorAll('.nbca-radio-label');
+      for (var i = 0; i < labels.length; i++) {
+        var lab = labels[i];
+        if (lab.getAttribute('data-nbca-priced') === '1') continue;
+        var sp = splitPrice(lab.textContent);
+        lab.setAttribute('data-nbca-priced', '1');
+        if (!sp) continue;
+        lab.textContent = sp.name;
+        var pill = document.createElement('span');
+        pill.className = 'nbca-radio-price';
+        pill.textContent = '$' + (sp.price % 1 ? sp.price.toFixed(2) : String(sp.price));
+        lab.parentNode.appendChild(pill);
+      }
+      // Heading if the original "Member Type" label went away with the
+      // hidden dropdown (e.g. the label lives in sl-select's shadow DOM).
+      var container = group.parentNode;
+      if (!container) continue;
+      var labelShown = false;
+      var cands = container.querySelectorAll('label, app-label, .generic-header-wrapper__name');
+      for (var k = 0; k < cands.length; k++) {
+        if (norm(cands[k].textContent) === 'member type' && isVisible(cands[k])) { labelShown = true; break; }
+      }
+      var prev = group.previousElementSibling;
+      var hasOurs = prev && prev.classList.contains('nbca-radio-heading');
+      if (!labelShown && !hasOurs) {
+        var h = document.createElement('div');
+        h.className = 'nbca-radio-heading';
+        h.textContent = 'Member Type';
+        container.insertBefore(h, group);
+      }
+      // "Amount due" line after the group, from MemberClicks' own computed
+      // "1 period - $X" text (hidden by the join block but still in the DOM).
+      var periodEls = findTextEls(PERIOD_RE, appForm());
+      var due = null;
+      if (periodEls.length) {
+        var m = PERIOD_RE.exec(periodEls[0].textContent.replace(/\s+/g, ' ').trim());
+        if (m) due = parseMoney(m[1]);
+      }
+      // Kept INSIDE the group (last child) so the group stays the direct
+      // previous sibling of the dropdown's formly-field (CSS hide relies on it).
+      var dueEl = group.querySelector(':scope > .nbca-renew-due');
+      if (due == null) { if (dueEl) dueEl.remove(); continue; }
+      if (!dueEl) {
+        dueEl = document.createElement('div');
+        dueEl.className = 'nbca-renew-due';
+        dueEl.setAttribute('aria-live', 'polite');
+        dueEl.appendChild(document.createTextNode('Amount due today: '));
+        dueEl.appendChild(document.createElement('strong'));
+        group.appendChild(dueEl);
+      }
+      setText(dueEl.querySelector('strong'), money(due));
+    }
+  }
+
+  // ---- Hides ----------------------------------------------------------------
+  function hideOptionalFields() {
+    var inputs = document.querySelectorAll('sl-input, sl-textarea');
+    for (var i = 0; i < inputs.length; i++) {
+      var el = inputs[i];
+      if (el.getAttribute('data-nbca-renew-hidden') === '1') continue;
+      if (!(idHas(el, ORG_FIELD_IDS) || HIDE_FIELD_LABELS.indexOf(fieldLabel(el)) !== -1)) continue;
+      if (el.required || el.hasAttribute('required')) continue; // never hide a required field
+      var ff = el.closest('formly-field') || el;
+      if (ff.style.display !== 'none') ff.style.display = 'none';
+      el.setAttribute('data-nbca-renew-hidden', '1');
+    }
+    var intros = findTextEls(MC_INTRO_RE, appForm(), 'app-label, p, div, span');
+    for (var j = 0; j < intros.length; j++) {
+      if (intros[j].style.display !== 'none') intros[j].style.display = 'none';
+    }
+  }
+
+  // ---- Step detection -------------------------------------------------------
+  function isConfirmation() {
+    var els = appForm().querySelectorAll('app-label, .section__name, h2, h3, p');
+    for (var i = 0; i < els.length; i++) {
+      if (isVisible(els[i]) && CONFIRM_RE.test(els[i].textContent || '')) return true;
+    }
+    return false;
+  }
+  function pagerButtons() {
+    return document.querySelectorAll('.form-pager sl-button, .form-pager button');
+  }
+  function btnKind(b) {
+    var t = norm(b.textContent);
+    if (t === 'next' || t === 'continue') return 'next';
+    if (t === 'previous' || t === 'back') return 'prev';
+    if (/^submit( payment)?$/.test(t) || t === 'pay now' || t === 'renew') return 'submit';
+    return '';
+  }
+  function headingVisible(re) {
+    var hs = document.querySelectorAll('.section__name, h2');
+    for (var i = 0; i < hs.length; i++) if (isVisible(hs[i]) && re.test(norm(hs[i].textContent))) return true;
+    return false;
+  }
+  var lastStep = 1;
+  function detectStep() {
+    if (isConfirmation()) return 4;
+    if (anyVisible('app-login-section, app-login-existing')) return 0;
+    var kinds = {};
+    var pb = pagerButtons();
+    for (var i = 0; i < pb.length; i++) if (isVisible(pb[i])) kinds[btnKind(pb[i])] = true;
+    if (kinds.submit || anyVisible('formly-group.credit-card, formly-field.credit-card__number') || headingVisible(/^payment$/)) return 3;
+    if (anyVisible('.registrant-wrapper, .registrant__type')) return 2;
+    if (findMemberTypeSelect() || anyVisible('.nbca-radio-group')) return 1;
+    if (kinds.next && kinds.prev) return 2;
+    if (kinds.next) return 1;
+    return lastStep;
+  }
+
+  // ---- Header (intro + stepper) ---------------------------------------------
+  function buildHead() {
+    var head = document.createElement('div');
+    head.className = 'nbca-renew-head';
+    var intro = document.createElement('div');
+    intro.className = 'nbca-renew-intro';
+    intro.textContent = INTRO;
+    head.appendChild(intro);
+    var ol = document.createElement('ol');
+    ol.className = 'nbca-steps';
+    ol.setAttribute('aria-label', 'Renewal progress');
+    for (var i = 0; i < STEPS.length; i++) {
+      var li = document.createElement('li');
+      li.className = 'nbca-step';
+      var num = document.createElement('span');
+      num.className = 'nbca-step__num';
+      num.textContent = String(i + 1);
+      var lab = document.createElement('span');
+      lab.className = 'nbca-step__label';
+      lab.textContent = STEPS[i];
+      li.appendChild(num);
+      li.appendChild(lab);
+      ol.appendChild(li);
+    }
+    head.appendChild(ol);
+    var hint = document.createElement('div');
+    hint.className = 'nbca-renew-hint';
+    hint.setAttribute('aria-live', 'polite');
+    head.appendChild(hint);
+    return head;
+  }
+  function ensureHead(step) {
+    var ff = document.querySelector('app-form formly-form') || document.querySelector('formly-form');
+    if (!ff || !ff.parentNode) return;
+    var head = document.querySelector('.nbca-renew-head');
+    if (!head) head = buildHead();
+    // Confirmation links sit between the header and the form. Pinning the
+    // header to the form whenever anything is in between moves the header
+    // below those links on the next tick. Keep: header, links, form.
+    var done = document.querySelector('.nbca-renew-done');
+    var next = head.nextElementSibling;
+    var inPlace = head.parentNode === ff.parentNode
+      && (done ? (next === done && done.nextElementSibling === ff) : next === ff);
+    if (!inPlace) {
+      ff.parentNode.insertBefore(head, ff);
+      if (done) head.parentNode.insertBefore(done, head.nextSibling);
+    }
+    var ol = head.querySelector('.nbca-steps');
+    if (step === 0) { if (!ol.hidden) ol.hidden = true; } else if (ol.hidden) { ol.hidden = false; }
+    var items = ol.children;
+    for (var i = 0; i < items.length; i++) {
+      var n = i + 1;
+      toggleClass(items[i], 'is-current', n === step);
+      toggleClass(items[i], 'is-done', n < step);
+      if (n === step) setAttr(items[i], 'aria-current', 'step');
+      else if (items[i].hasAttribute('aria-current')) items[i].removeAttribute('aria-current');
+      setText(items[i].firstChild, n < step ? '\u2713' : String(n));
+    }
+    setText(head.querySelector('.nbca-renew-hint'), HINTS[step] || '');
+  }
+
+  // ---- Pager buttons ----------------------------------------------------------
+  function styleButtons(step) {
+    var pb = pagerButtons();
+    var submitBtn = null;
+    for (var i = 0; i < pb.length; i++) {
+      var k = btnKind(pb[i]);
+      if (k) setAttr(pb[i], 'data-nbca-btn', k);
+      else if (pb[i].hasAttribute('data-nbca-btn')) pb[i].removeAttribute('data-nbca-btn');
+      if (k === 'submit' && isVisible(pb[i])) submitBtn = pb[i];
+    }
+    var hint = document.querySelector('.nbca-submit-hint');
+    var need = submitBtn && (submitBtn.disabled || submitBtn.hasAttribute('disabled'));
+    if (need) {
+      var pager = submitBtn.closest('.form-pager');
+      if (!hint) {
+        hint = document.createElement('div');
+        hint.className = 'nbca-submit-hint';
+        hint.textContent = 'Fill in the required fields (*) to enable Submit Payment.';
+      }
+      if (pager && hint.parentNode !== pager) pager.appendChild(hint);
+    } else if (hint) {
+      hint.remove();
+    }
+  }
+
+  // ---- Payment total ----------------------------------------------------------
+  function decorateTotal(step) {
+    var choice = readChoice();
+    var totals = step === 3 ? findTextEls(TOTAL_RE, appForm()) : [];
+    var t = totals[0];
+    var forEl = document.querySelector('.nbca-renew-for');
+    var warn = document.querySelector('.nbca-renew-warn');
+    if (!t) { if (forEl) forEl.remove(); if (warn) warn.remove(); return; }
+    toggleClass(t, 'nbca-renew-total', true);
+    var m = TOTAL_RE.exec(t.textContent.replace(/\s+/g, ' ').trim());
+    var total = m ? parseMoney(m[1]) : null;
+    if (choice && choice.name) {
+      if (!forEl) { forEl = document.createElement('div'); forEl.className = 'nbca-renew-for'; }
+      if (forEl.previousElementSibling !== t) t.parentNode.insertBefore(forEl, t.nextSibling);
+      setText(forEl, 'Membership: ' + choice.name);
+    } else if (forEl) { forEl.remove(); forEl = null; }
+    var mismatch = choice && total != null && choice.price != null && Math.abs(total - choice.price) > 0.009;
+    if (mismatch) {
+      if (!warn) { warn = document.createElement('div'); warn.className = 'nbca-renew-warn'; warn.setAttribute('role', 'status'); }
+      var after = forEl || t;
+      if (warn.previousElementSibling !== after) after.parentNode.insertBefore(warn, after.nextSibling);
+      setText(warn, 'Heads up: the total (' + money(total) + ') doesn\u2019t match the membership you picked ('
+        + choice.name + ', ' + money(choice.price) + '). If that\u2019s unexpected, click Previous and choose your membership again.');
+    } else if (warn) { warn.remove(); }
+  }
+
+  // ---- Confirmation -----------------------------------------------------------
+  function decorateDone(step) {
+    var box = document.querySelector('.nbca-renew-done');
+    if (step !== 4) { if (box) box.remove(); return; }
+    try { sessionStorage.removeItem(CHOICE_KEY); } catch (e) {}
+    if (box) return;
+    var head = document.querySelector('.nbca-renew-head');
+    if (!head || !head.parentNode) return;
+    box = document.createElement('div');
+    box.className = 'nbca-renew-done';
+    box.innerHTML = '<a class="nbca-primary" href="/home">Back to the NBCA homepage</a>'
+      + '<a class="nbca-secondary" href="/member-profile#/profile">View my member profile</a>';
+    head.parentNode.insertBefore(box, head.nextSibling);
+  }
+
+  // ---- Driver -----------------------------------------------------------------
+  function tick() {
+    try {
+      injectCss();
+      hideOptionalFields();
+      var step = detectStep();
+      lastStep = step;
+      if (step === 1) rememberChoice();
+      ensureHead(step);
+      decorateRadios();
+      styleButtons(step);
+      decorateTotal(step);
+      decorateDone(step);
+    } catch (e) {
+      if (window.console && console.warn) console.warn('[NBCA renewal]', e);
+    }
+  }
+
+  // Coalesce observer bursts into one tick per frame; hides run immediately
+  // (before paint) so the Organization field / MC intro never flash.
+  var scheduled = false;
+  function schedule() {
+    if (scheduled) return;
+    scheduled = true;
+    (window.requestAnimationFrame || setTimeout)(function () { scheduled = false; tick(); });
+  }
+  tick();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', tick);
+  if (document.body) {
+    try {
+      new MutationObserver(function () { try { hideOptionalFields(); } catch (e) {} schedule(); })
+        .observe(document.body, { childList: true, subtree: true });
+    } catch (e) {}
+  }
+  // Remember the member-type choice as soon as it changes (the radio block
+  // fires sl-change on the real select; we only read it).
+  document.addEventListener('sl-change', function () { setTimeout(rememberChoice, 0); schedule(); }, true);
+  setInterval(tick, 700);
+
+  window.nbcaRenewalDebug = function () {
+    var mt = findMemberTypeSelect();
+    var pb = pagerButtons(), btns = [];
+    for (var i = 0; i < pb.length; i++) btns.push({ text: norm(pb[i].textContent), kind: btnKind(pb[i]), disabled: !!(pb[i].disabled || pb[i].hasAttribute('disabled')), visible: isVisible(pb[i]) });
+    return {
+      step: detectStep(),
+      memberTypeSelect: mt ? { id: mt.id, label: fieldLabel(mt), options: mt.querySelectorAll('sl-option, sl-menu-item, option').length } : null,
+      radioGroups: document.querySelectorAll('.nbca-radio-group').length,
+      hiddenFields: document.querySelectorAll('[data-nbca-renew-hidden="1"]').length,
+      periodLines: findTextEls(PERIOD_RE, appForm()).length,
+      totalFound: findTextEls(TOTAL_RE, appForm()).length,
+      cardGrid: !!document.querySelector('formly-group.credit-card'),
+      verifyBanners: document.querySelectorAll('.nbca-verify-banner').length,
+      buttons: btns
+    };
+  };
 })();
