@@ -18,6 +18,58 @@ function nbcaFormKind(pathname) {
   return '';
 }
 
+// Renewal only: MemberClicks refuses the form for some signed-in members and
+// renders a red error box whose text is "You are not eligible to take this
+// form. ...". While that message is on the page, renewal UI must not run.
+// The phrase (case-insensitive) is the signal — not a CSS class — because
+// the markup can change. Known alert-style hosts are checked first:
+//   app-form .error__message inside .error-wrapper (the red box),
+//   app-section-error-message .error-message,
+//   sl-alert / [role="alert"].
+// A full-page text walk is the fallback so a plain element still matches.
+var NBCA_INELIGIBLE_PHRASE = 'not eligible to take this form';
+function nbcaTextHasIneligiblePhrase(text) {
+  return String(text || '').toLowerCase().indexOf(NBCA_INELIGIBLE_PHRASE) !== -1;
+}
+function nbcaPageHasIneligibleText(root) {
+  if (!root) return false;
+  try {
+    if (typeof document.createTreeWalker === 'function' && typeof NodeFilter !== 'undefined') {
+      var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, function (node) {
+        var parent = node.parentNode;
+        var tag = parent && parent.tagName;
+        if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'TEXTAREA') {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      });
+      // Each text node is tested on its own (so a long node can't hide the
+      // phrase), plus a short tail of the previous node so a phrase split
+      // across inline tags still matches.
+      var overlap = '';
+      var step = walker.nextNode();
+      while (step) {
+        var value = String(step.nodeValue || '');
+        if (nbcaTextHasIneligiblePhrase(overlap + value)) return true;
+        overlap = (overlap + value).slice(-80);
+        step = walker.nextNode();
+      }
+      return false;
+    }
+  } catch (e) {}
+  return nbcaTextHasIneligiblePhrase(root.textContent);
+}
+function nbcaRenewalBlocked() {
+  if (nbcaFormKind() !== 'renewal') return false;
+  var alerts = document.querySelectorAll(
+    '.error__message, .error-wrapper, .error-message, app-section-error-message, sl-alert, [role="alert"]'
+  );
+  for (var i = 0; i < alerts.length; i++) {
+    if (nbcaTextHasIneligiblePhrase(alerts[i].textContent)) return true;
+  }
+  return nbcaPageHasIneligibleText(document.body);
+}
+
 /* ============================================================
    Magic-link funnel analytics (Google Analytics 4)
 
@@ -898,13 +950,66 @@ function nbcaFormKind(pathname) {
     }
   }
 
+  // Renewal page only, and only while MemberClicks is showing the
+  // not-eligible error. Join pages never take this path.
+  function renewalIneligible() {
+    return nbcaFormKind() === 'renewal' && typeof nbcaRenewalBlocked === 'function' && nbcaRenewalBlocked();
+  }
+
+  // Remove join-block injections so an ineligible renewal page shows only
+  // MemberClicks' own error. Idempotent: after the markers are gone this
+  // does not write. If the error later disappears, the normal ticks put the
+  // banners and hides back.
+  function clearIneligibleJoinUi() {
+    var banners = document.querySelectorAll('.nbca-verify-banner');
+    for (var i = 0; i < banners.length; i++) {
+      if (banners[i].parentNode) banners[i].parentNode.removeChild(banners[i]);
+    }
+    var org = document.querySelectorAll('[data-nbca-org-hidden="1"]');
+    for (var j = 0; j < org.length; j++) {
+      var el = org[j];
+      var field = el.closest && el.closest('formly-field');
+      if (field && field.style.display === 'none') field.style.display = '';
+      if (el.style && el.style.display === 'none') el.style.display = '';
+      delete el.dataset.nbcaOrgHidden;
+    }
+    var mo = document.querySelectorAll('[data-nbca-mo-hidden="1"]');
+    for (var k = 0; k < mo.length; k++) {
+      if (mo[k].style.display === 'none') mo[k].style.display = '';
+      delete mo[k].dataset.nbcaMoHidden;
+    }
+    var renamed = document.querySelectorAll('[data-nbca-linked-renamed="1"]');
+    for (var r = 0; r < renamed.length; r++) {
+      var b = renamed[r];
+      for (var c = 0; c < b.childNodes.length; c++) {
+        var node = b.childNodes[c];
+        if (node.nodeType === 3 && node.textContent.indexOf('Add Spouse / Family Member') !== -1) {
+          node.textContent = node.textContent.replace('Add Spouse / Family Member', 'Create Linked Profile');
+        }
+      }
+      delete b.dataset.nbcaLinkedRenamed;
+    }
+  }
+
   // Only the full-tree text walk (replaceOrgWithHousehold) is genuinely expensive
   // — it scans every DOM element. The other "hide" functions are sentinel-gated
   // and run cheap once an element has been hidden, so they can run every tick.
   // Throttling them caused a visible flash when Angular re-rendered "Organization
   // Name" / "1 period - $50" mid-flow.
   var lastHeavyTick = 0;
+  // True after we've stripped join-block UI for an ineligible renewal, so the
+  // next observer/interval turn can put it back the moment the error is gone
+  // (not only when a registrant wrapper happens to be added).
+  var joinSuppressed = false;
   function tick() {
+    if (renewalIneligible()) {
+      clearIneligibleJoinUi();
+      joinSuppressed = true;
+      return;
+    }
+    // Clear before any DOM write so the observer that sees those writes does
+    // not call tick() again.
+    joinSuppressed = false;
     expandSelfAccordion();
     expandPrimaryIfAlone();
     renameLinkedProfileBtn();
@@ -977,6 +1082,16 @@ function nbcaFormKind(pathname) {
     return !!(n.querySelector && n.querySelector('.registrant-wrapper'));
   }
   var hideObserver = new MutationObserver(function (mutations) {
+    if (renewalIneligible()) {
+      clearIneligibleJoinUi();
+      joinSuppressed = true;
+      return;
+    }
+    if (joinSuppressed) {
+      joinSuppressed = false;
+      tick();
+      return;
+    }
     for (var i = 0; i < mutations.length; i++) {
       var added = mutations[i].addedNodes;
       for (var j = 0; j < added.length; j++) {
@@ -1010,6 +1125,16 @@ function nbcaFormKind(pathname) {
   // because it stopped after 5s.
   var lastWrapperCount = -1;
   setInterval(function () {
+    if (renewalIneligible()) {
+      clearIneligibleJoinUi();
+      joinSuppressed = true;
+      return;
+    }
+    if (joinSuppressed) {
+      joinSuppressed = false;
+      tick();
+      return;
+    }
     var all = document.querySelectorAll('.registrant-wrapper');
     var count = 0;
     for (var i = 0; i < all.length; i++) {
@@ -1366,6 +1491,42 @@ function nbcaFormKind(pathname) {
     if (slSelect.style.display !== 'none') slSelect.style.display = 'none';
     var wrapper = slSelect.closest('app-single-select');
     if (wrapper && wrapper.style.display !== 'none') wrapper.style.display = 'none';
+    // Renewal only: remember that WE hid these, so the not-eligible path can
+    // put them back. Join forms stay attribute-free, same as before.
+    if (typeof nbcaFormKind !== 'function' || nbcaFormKind() !== 'renewal') return;
+    if (slSelect.getAttribute('data-nbca-mt-hidden') !== '1') slSelect.setAttribute('data-nbca-mt-hidden', '1');
+    if (wrapper && wrapper.getAttribute('data-nbca-mt-hidden') !== '1') wrapper.setAttribute('data-nbca-mt-hidden', '1');
+  }
+
+  function restoreMemberTypeSelect(slSelect) {
+    if (slSelect.getAttribute('data-nbca-mt-hidden') === '1') {
+      if (slSelect.style.display === 'none') slSelect.style.display = '';
+      slSelect.removeAttribute('data-nbca-mt-hidden');
+    }
+    var wrapper = slSelect.closest('app-single-select');
+    if (wrapper && wrapper.getAttribute('data-nbca-mt-hidden') === '1') {
+      if (wrapper.style.display === 'none') wrapper.style.display = '';
+      wrapper.removeAttribute('data-nbca-mt-hidden');
+    }
+  }
+
+  // Pull the radio cards back off an ineligible renewal page and reveal the
+  // original Member Type control. No-op once they're already gone.
+  function clearMemberTypeRadios() {
+    var groups = document.querySelectorAll('.nbca-radio-group');
+    for (var i = 0; i < groups.length; i++) {
+      if (groups[i].parentNode) groups[i].parentNode.removeChild(groups[i]);
+    }
+    var headings = document.querySelectorAll('.nbca-radio-heading');
+    for (var h = 0; h < headings.length; h++) {
+      if (headings[h].parentNode) headings[h].parentNode.removeChild(headings[h]);
+    }
+    var selects = document.querySelectorAll('sl-select');
+    for (var s = 0; s < selects.length; s++) {
+      if (isMemberTypeSelect(selects[s])) restoreMemberTypeSelect(selects[s]);
+    }
+    var loader = document.getElementById('nbca-mt-loader');
+    if (loader && loader.parentNode) loader.parentNode.removeChild(loader);
   }
 
   function syncRadioState(group, slSelect) {
@@ -1466,6 +1627,13 @@ function nbcaFormKind(pathname) {
   }
 
   function tick() {
+    // Renewal + not-eligible error: do not build radio cards, and remove any
+    // that were built before the error showed up. Join forms are unaffected
+    // (nbcaRenewalBlocked is false off /renewal-form).
+    if (typeof nbcaRenewalBlocked === 'function' && nbcaRenewalBlocked()) {
+      clearMemberTypeRadios();
+      return;
+    }
     var selects = document.querySelectorAll('sl-select');
     for (var i = 0; i < selects.length; i++) {
       var s = selects[i];
@@ -2314,6 +2482,14 @@ function nbcaFormKind(pathname) {
    every write is conditional, so re-running on each mutation is a no-op
    once the page is in the desired state.
 
+   Not-eligible members: MemberClicks paints a red error box ("You are not
+   eligible to take this form. ...") above an empty formly-form. While that
+   phrase is on the page (nbcaRenewalBlocked — text match, not a class),
+   this block injects nothing and removes anything it already injected
+   (intro, stepper, hint, price/total decorations, button restyling, hidden
+   fields). The error node itself is never edited. The same MutationObserver
+   and interval flip the UI back on if the error goes away.
+
    Debug (in the browser console on the renewal form):
      nbcaRenewalDebug()  -> structural info only (no field values).
    ============================================================ */
@@ -2347,7 +2523,9 @@ function nbcaFormKind(pathname) {
   var CHOICE_KEY = 'nbca_renew_choice';
 
   var root = document.documentElement;
-  if (root.getAttribute('data-nbca-renewal') !== '1') root.setAttribute('data-nbca-renewal', '1');
+  // data-nbca-renewal is toggled from tick(), not here: it scopes the CSS
+  // that restyles the pager, and it must be absent while the not-eligible
+  // error is on the page.
 
   // ---- Styles ---------------------------------------------------------------
   function injectCss() {
@@ -2572,7 +2750,45 @@ function nbcaFormKind(pathname) {
     }
     var intros = findTextEls(MC_INTRO_RE, appForm(), 'app-label, p, div, span');
     for (var j = 0; j < intros.length; j++) {
-      if (intros[j].style.display !== 'none') intros[j].style.display = 'none';
+      var introEl = intros[j];
+      if (introEl.getAttribute('data-nbca-renew-intro-hidden') === '1' && introEl.style.display === 'none') continue;
+      introEl.style.display = 'none';
+      introEl.setAttribute('data-nbca-renew-intro-hidden', '1');
+    }
+  }
+
+  // Take every renewal injection back off the page. Safe to call when nothing
+  // was injected: each step writes only if something is still there, so a
+  // second call does not mutate. Does not touch MemberClicks' error box.
+  function clearRenewalUi() {
+    if (root.hasAttribute('data-nbca-renewal')) root.removeAttribute('data-nbca-renewal');
+
+    var injected = document.querySelectorAll(
+      '.nbca-renew-head, .nbca-renew-done, .nbca-renew-for, .nbca-renew-warn,'
+      + ' .nbca-submit-hint, .nbca-radio-heading, .nbca-renew-due, .nbca-radio-price'
+    );
+    for (var i = 0; i < injected.length; i++) {
+      if (injected[i].parentNode) injected[i].parentNode.removeChild(injected[i]);
+    }
+
+    var totals = document.querySelectorAll('.nbca-renew-total');
+    for (var t = 0; t < totals.length; t++) totals[t].classList.remove('nbca-renew-total');
+
+    var btns = document.querySelectorAll('[data-nbca-btn]');
+    for (var b = 0; b < btns.length; b++) btns[b].removeAttribute('data-nbca-btn');
+
+    var hidden = document.querySelectorAll('[data-nbca-renew-hidden]');
+    for (var h = 0; h < hidden.length; h++) {
+      var el = hidden[h];
+      var ff = el.closest ? (el.closest('formly-field') || el) : el;
+      if (ff.style && ff.style.display === 'none') ff.style.display = '';
+      el.removeAttribute('data-nbca-renew-hidden');
+    }
+
+    var intros = document.querySelectorAll('[data-nbca-renew-intro-hidden]');
+    for (var n = 0; n < intros.length; n++) {
+      if (intros[n].style.display === 'none') intros[n].style.display = '';
+      intros[n].removeAttribute('data-nbca-renew-intro-hidden');
     }
   }
 
@@ -2744,6 +2960,8 @@ function nbcaFormKind(pathname) {
   // ---- Driver -----------------------------------------------------------------
   function tick() {
     try {
+      if (nbcaRenewalBlocked()) { clearRenewalUi(); return; }
+      if (root.getAttribute('data-nbca-renewal') !== '1') root.setAttribute('data-nbca-renewal', '1');
       injectCss();
       hideOptionalFields();
       var step = detectStep();
@@ -2771,8 +2989,15 @@ function nbcaFormKind(pathname) {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', tick);
   if (document.body) {
     try {
-      new MutationObserver(function () { try { hideOptionalFields(); } catch (e) {} schedule(); })
-        .observe(document.body, { childList: true, subtree: true });
+      new MutationObserver(function () {
+        try {
+          // Synchronous (before paint) so the intro/stepper never flash in
+          // under the red error box, including when the error arrives late.
+          if (nbcaRenewalBlocked()) { clearRenewalUi(); return; }
+          hideOptionalFields();
+        } catch (e) {}
+        schedule();
+      }).observe(document.body, { childList: true, subtree: true });
     } catch (e) {}
   }
   // Remember the member-type choice as soon as it changes (the radio block
@@ -2786,6 +3011,7 @@ function nbcaFormKind(pathname) {
     for (var i = 0; i < pb.length; i++) btns.push({ text: norm(pb[i].textContent), kind: btnKind(pb[i]), disabled: !!(pb[i].disabled || pb[i].hasAttribute('disabled')), visible: isVisible(pb[i]) });
     return {
       step: detectStep(),
+      blocked: nbcaRenewalBlocked(),
       memberTypeSelect: mt ? { id: mt.id, label: fieldLabel(mt), options: mt.querySelectorAll('sl-option, sl-menu-item, option').length } : null,
       radioGroups: document.querySelectorAll('.nbca-radio-group').length,
       hiddenFields: document.querySelectorAll('[data-nbca-renew-hidden="1"]').length,
